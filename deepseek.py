@@ -2,6 +2,7 @@ from openai import OpenAI
 import os
 from dotenv import load_dotenv
 from datetime import datetime
+import time
 
 load_dotenv()
 
@@ -10,19 +11,45 @@ client = OpenAI(
     base_url="https://api.deepseek.com"
 )
 
-def check_balance():
+_balance_cache = None
+_balance_cache_time = None
+_balance_cache_ttl = 300
+
+def check_balance(force_refresh=False):
+    global _balance_cache, _balance_cache_time
+    
+    if not force_refresh and _balance_cache is not None and _balance_cache_time is not None:
+        if time.time() - _balance_cache_time < _balance_cache_ttl:
+            return _balance_cache
+    
+    api_key = os.getenv("DEEPSEEK_API_KEY")
+    if not api_key:
+        result = (False, "未配置 API Key，请在 .env 文件中设置 DEEPSEEK_API_KEY")
+        _balance_cache = result
+        _balance_cache_time = time.time()
+        return result
+    
     try:
         response = client.chat.completions.create(
             model="deepseek-chat",
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=1
         )
-        return True, "API 连接成功"
+        result = (True, "✅ API 连接成功")
+        _balance_cache = result
+        _balance_cache_time = time.time()
+        return result
     except Exception as e:
         error_str = str(e)
         if "402" in error_str or "Insufficient Balance" in error_str:
-            return False, "余额不足，请到 DeepSeek 平台充值"
-        return False, f"错误: {error_str}"
+            result = (False, "❌ 余额不足，请到 DeepSeek 平台充值")
+        elif "401" in error_str or "authentication" in error_str.lower():
+            result = (False, "❌ API Key 无效，请检查配置")
+        else:
+            result = (False, f"❌ 连接失败: {error_str}")
+        _balance_cache = result
+        _balance_cache_time = time.time()
+        return result
 
 def stock_review(stock_code, stock_data, market_sentiment=None, hot_sectors=None):
     today = datetime.now()

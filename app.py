@@ -26,76 +26,117 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠
 with tab1:
     st.header("⚡ 单Prompt分析（快速）")
 
-    col1, col2 = st.columns([3, 1])
+    col1, col2, col3 = st.columns([4, 1, 2])
     with col1:
         stock = st.text_input("输入股票代码（如 601360）", placeholder="601360", key="stock_single")
 
     with col2:
-        balance_ok, balance_msg = check_balance()
-        st.info(balance_msg)
+        api_placeholder = st.empty()
+        if st.button("🔗 检测", key="check_api", help="点击检查API连接"):
+            with st.spinner("检测中..."):
+                balance_ok, balance_msg = check_balance(force_refresh=True)
+            if balance_ok:
+                api_placeholder.success("✅")
+            else:
+                api_placeholder.error("❌")
+        else:
+            api_placeholder.caption("🔗 API")
 
-    data_mode = st.radio(
-        "📊 数据获取模式",
-        ["⚡ 极速模式（仅个股数据）", "📈 标准模式（个股+市场情绪）", "🔍 完整模式（全部数据）"],
-        index=1,
-        horizontal=True,
-        help="极速模式最快，完整模式信息最全"
-    )
+    with col3:
+        data_mode = st.radio(
+            "📊 模式",
+            ["⚡极速", "📈标准", "🔍完整"],
+            index=1,
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+
+    data_mode_mapping = {
+        "⚡极速": "⚡ 极速模式（仅个股数据）",
+        "📈标准": "📈 标准模式（个股+市场情绪）",
+        "🔍完整": "🔍 完整模式（全部数据）"
+    }
+    selected_data_mode = data_mode_mapping[data_mode]
 
     if st.button("🚀 开始分析", key="analyze_single", type="primary"):
         if not stock:
             st.error("请输入股票代码")
         else:
-            stock_data = get_stock_data(stock)
+            progress_bar = st.progress(0, text="准备开始...")
 
-            if stock_data:
+            progress_bar.progress(10, text="📈 步骤 1/5：正在获取个股数据...")
+            with st.spinner("📈 正在获取个股数据..."):
+                stock_data = get_stock_data(stock)
+
+            if not stock_data:
+                st.error(f"未找到股票代码: {stock}")
+                progress_bar.progress(100, text="❌ 分析失败")
+            else:
+                progress_bar.progress(30, text="✅ 个股数据获取成功")
+
                 sentiment_data = None
                 hot_sectors = None
 
-                if data_mode == "⚡ 极速模式（仅个股数据）":
+                if selected_data_mode == "⚡ 极速模式（仅个股数据）":
                     sentiment_data = {"market_mood": "待获取", "limit_up_count": 0, "rising_count": 0}
                     hot_sectors = []
                     with st.expander("📈 个股行情数据", expanded=True):
                         st.json(stock_data)
                     st.info("⚡ 极速模式：已获取个股数据，市场情绪已省略")
+                    progress_bar.progress(40, text="✅ 准备完成，开始AI分析...")
 
-                elif data_mode == "📈 标准模式（个股+市场情绪）":
-                    with st.spinner("📊 获取市场情绪数据..."):
+                elif selected_data_mode == "📈 标准模式（个股+市场情绪）":
+                    progress_bar.progress(40, text="📊 步骤 2/5：正在获取市场情绪数据...")
+                    with st.spinner("📊 正在获取市场情绪数据..."):
                         sentiment_data = get_market_sentiment()
+                    progress_bar.progress(60, text="✅ 市场情绪数据获取成功")
+
                     with st.expander("📈 个股行情数据", expanded=True):
                         st.json(stock_data)
                     with st.expander("📊 市场情绪数据", expanded=True):
                         st.json(sentiment_data)
                     hot_sectors = []
+                    progress_bar.progress(70, text="✅ 数据准备完成，开始AI分析...")
 
                 else:
-                    with st.spinner("📊 获取完整数据..."):
+                    progress_bar.progress(40, text="📊 步骤 2/5：正在获取市场情绪数据...")
+                    with st.spinner("📊 正在获取市场情绪数据..."):
                         sentiment_data = get_market_sentiment()
+                    progress_bar.progress(55, text="✅ 市场情绪数据获取成功")
+
+                    progress_bar.progress(60, text="🔥 步骤 3/5：正在获取热门板块数据...")
+                    with st.spinner("🔥 正在获取热门板块数据..."):
                         hot_sectors = get_hot_sectors()
+                    progress_bar.progress(70, text="✅ 热门板块数据获取成功")
+
                     with st.expander("📈 个股行情数据", expanded=True):
                         st.json(stock_data)
                     with st.expander("📊 市场情绪数据", expanded=True):
                         st.json(sentiment_data)
                     with st.expander("🔥 热门概念板块", expanded=True):
                         st.json(hot_sectors)
+                    progress_bar.progress(75, text="✅ 数据准备完成，开始AI分析...")
 
-                with st.spinner("🤖 AI正在分析..."):
+                progress_bar.progress(80, text="🤖 步骤 4/5：AI正在分析中...")
+                with st.spinner("🤖 AI正在分析中..."):
                     result = stock_review(stock, stock_data, sentiment_data, hot_sectors)
 
-                    if sentiment_data and sentiment_data.get('market_mood') not in [None, "待获取"]:
-                        save_analysis(stock_data, result, sentiment_data.get('market_mood', ''))
+                progress_bar.progress(90, text="💾 步骤 5/5：正在保存分析结果...")
+                if sentiment_data and sentiment_data.get('market_mood') not in [None, "待获取"]:
+                    save_analysis(stock_data, result, sentiment_data.get('market_mood', ''))
 
-                    st.subheader("🎯 AI复盘结果")
-                    st.markdown(result)
+                progress_bar.progress(100, text="✅ 分析完成！")
+                st.balloons()
 
-                    st.download_button(
-                        label="📥 下载报告",
-                        data=result,
-                        file_name=f"复盘报告_{stock}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                        mime="text/plain"
-                    )
-            else:
-                st.error(f"未找到股票代码: {stock}")
+                st.subheader("🎯 AI复盘结果")
+                st.markdown(result)
+
+                st.download_button(
+                    label="📥 下载报告",
+                    data=result,
+                    file_name=f"复盘报告_{stock}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                    mime="text/plain"
+                )
 
 with tab2:
     st.header("🧠 多Agent协同分析（完整）")
@@ -113,28 +154,58 @@ with tab2:
         if not stock:
             st.error("请输入股票代码")
         else:
-            with st.spinner("正在获取真实行情数据..."):
+            progress_bar = st.progress(0, text="准备开始...")
+
+            progress_bar.progress(10, text="📈 步骤 1/6：正在获取个股数据...")
+            with st.spinner("📈 正在获取个股数据..."):
                 stock_data = get_stock_data(stock)
+
+            progress_bar.progress(25, text="📊 步骤 2/6：正在获取市场情绪数据...")
+            with st.spinner("📊 正在获取市场情绪数据..."):
                 sentiment_data = get_market_sentiment()
+
+            progress_bar.progress(40, text="🔥 步骤 3/6：正在获取热门板块数据...")
+            with st.spinner("🔥 正在获取热门板块数据..."):
                 hot_sectors = get_hot_sectors()
-            
+
             if stock_data:
+                progress_bar.progress(50, text="✅ 数据获取完成")
                 with st.expander("📈 个股行情数据", expanded=True):
                     st.json(stock_data)
-                
                 with st.expander("📊 市场情绪数据", expanded=True):
                     st.json(sentiment_data)
-                
                 with st.expander("🔥 热门概念板块", expanded=True):
                     st.json(hot_sectors)
-            
+
+            progress_bar.progress(55, text="🤖 步骤 4/6：正在协调多个Agent进行市场分析...")
             with st.spinner("🔄 正在协调多个Agent进行市场分析..."):
                 result = multi_agent_review(stock)
 
+            progress_bar.progress(85, text="✅ Agent分析完成")
             agent_results = result["agent_results"]
             final_report = result["final_report"]
             summary = result["summary"]
 
+            st.session_state.agent_results = agent_results
+            st.session_state.last_stock_code = stock
+
+            progress_bar.progress(90, text="💾 步骤 5/6：正在保存分析结果...")
+            if "error" not in agent_results.get("market", {}):
+                market_mood = agent_results.get("sentiment", {}).get("market_mood", "")
+                market_data = agent_results["market"]
+                market_data_for_save = {
+                    "code": market_data.get("stock_code"),
+                    "name": market_data.get("stock_name"),
+                    "price": market_data.get("price"),
+                    "price_change_pct": market_data.get("price_change_pct"),
+                    "volume": market_data.get("volume"),
+                    "turnover_rate": market_data.get("turnover_rate"),
+                    "amplitude": market_data.get("amplitude")
+                }
+                save_analysis(market_data_for_save, final_report, market_mood)
+
+            progress_bar.progress(100, text="✅ 分析完成！")
+            st.balloons()
             st.success("✅ 多Agent分析完成！")
 
             with st.expander("📋 快速摘要", expanded=True):
@@ -153,21 +224,6 @@ with tab2:
 
             st.subheader("🎯 AI综合分析报告")
             st.markdown(final_report)
-
-            if "error" not in agent_results.get("market", {}):
-                market_mood = agent_results.get("sentiment", {}).get("market_mood", "")
-                market_data = agent_results["market"]
-                market_data_for_save = {
-                    "code": market_data.get("stock_code"),
-                    "name": market_data.get("stock_name"),
-                    "price": market_data.get("price"),
-                    "price_change_pct": market_data.get("price_change_pct"),
-                    "volume": market_data.get("volume"),
-                    "turnover_rate": market_data.get("turnover_rate"),
-                    "amplitude": market_data.get("amplitude")
-                }
-                save_analysis(market_data_for_save, final_report, market_mood)
-                st.success("✅ 分析报告已保存到历史记录")
 
             st.download_button(
                 label="📥 下载完整报告",
@@ -211,27 +267,30 @@ with tab2:
 with tab3:
     st.header("📊 各Agent分析详情")
 
+    st.info("💡 请先在「多Agent分析」tab中进行一次分析，然后查看各Agent详情会自动更新")
+
+    if 'agent_results' not in st.session_state:
+        st.session_state.agent_results = None
+        st.session_state.last_stock_code = None
+
     if st.button("🔄 刷新数据"):
         st.rerun()
 
-    with st.spinner("正在获取各Agent数据..."):
-        result = multi_agent_review("000001")
-        agent_results = result["agent_results"]
+    if st.session_state.agent_results:
+        st.subheader("📊 行情Agent")
+        st.text(st.session_state.agent_results["format"]["market"])
 
-    st.subheader("📊 行情Agent")
-    st.text(agent_results["format"]["market"])
+        st.subheader("📉 情绪Agent")
+        st.text(st.session_state.agent_results["format"]["sentiment"])
 
-    st.subheader("📉 情绪Agent")
-    st.text(agent_results["format"]["sentiment"])
+        st.subheader("🧭 板块Agent")
+        st.text(st.session_state.agent_results["format"]["sector"])
 
-    st.subheader("🧭 板块Agent")
-    st.text(agent_results["format"]["sector"])
+        st.subheader("💰 资金Agent")
+        st.text(st.session_state.agent_results["format"]["flow"])
 
-    st.subheader("💰 资金Agent")
-    st.text(agent_results["format"]["flow"])
-
-    st.subheader("⚠️ 风险Agent")
-    st.text(agent_results["format"]["risk"])
+        st.subheader("⚠️ 风险Agent")
+        st.text(st.session_state.agent_results["format"]["risk"])
 
 with tab4:
     st.header("📈 历史记录")
