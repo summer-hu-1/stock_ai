@@ -83,25 +83,50 @@ def get_stock_data(stock_code, use_cache=True):
         return None
 
 
-def get_stock_data_fast(stock_code, use_cache=True):
+def get_stock_data_fast(stock_code, use_cache=True, target_date=None):
     """
     极速模式获取A股行情数据 - 使用历史数据API，速度更快
-    注意：此函数获取的是最近可用交易日的收盘数据，非实时数据
+    注意：此函数获取的是指定日期或最近可用交易日的收盘数据，非实时数据
+    
+    Args:
+        target_date: 目标日期，datetime对象或字符串(YYYY-MM-DD/YYYYMMDD)，None为最近交易日
     """
     global _stock_data_cache, _stock_data_cache_time
 
     current_time = time.time()
-    cache_key = f"{stock_code}_fast"
+    
+    date_str = "latest"
+    if target_date is not None:
+        if isinstance(target_date, str):
+            if '-' in target_date:
+                date_str = target_date.replace('-', '')
+            else:
+                date_str = target_date
+        else:
+            date_str = target_date.strftime('%Y%m%d')
+    
+    cache_key = f"{stock_code}_fast_{date_str}"
     if use_cache and cache_key in _stock_data_cache:
         if current_time - _stock_data_cache_time.get(cache_key, 0) < _stock_data_cache_ttl:
-            print(f"📦 使用缓存的极速股票数据: {stock_code}")
+            print(f"📦 使用缓存的极速股票数据: {stock_code} @ {date_str}")
             return _stock_data_cache[cache_key]
 
     try:
         print(f"正在极速获取股票数据: {stock_code}")
-        today = datetime.now().strftime('%Y%m%d')
+        
+        if target_date is None:
+            end_date = datetime.now().strftime('%Y%m%d')
+        else:
+            if isinstance(target_date, str):
+                if '-' in target_date:
+                    end_date = target_date.replace('-', '')
+                else:
+                    end_date = target_date
+            else:
+                end_date = target_date.strftime('%Y%m%d')
+        
         start_date = (datetime.now().replace(day=1)).strftime('%Y%m%d')
-        df = ak.stock_zh_a_hist(symbol=stock_code, period='daily', start_date=start_date, end_date=today, adjust='')
+        df = ak.stock_zh_a_hist(symbol=stock_code, period='daily', start_date=start_date, end_date=end_date, adjust='')
 
         if df is None or not isinstance(df, pd.DataFrame) or df.empty:
             print(f"警告: 极速获取数据为空，尝试使用缓存")
