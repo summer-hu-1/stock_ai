@@ -320,7 +320,7 @@ with tab4:
             if history:
                 st.write(f"**共找到 {len(history)} 条历史记录**")
 
-                for record in history:
+                for i, record in enumerate(history):
                     with st.expander(f"📅 {record['created_at']} - {record['stock_name']}({record['stock_code']})"):
                         col_info, col_report = st.columns([1, 3])
 
@@ -336,7 +336,8 @@ with tab4:
                             label="📥 下载报告",
                             data=record['ai_summary'],
                             file_name=f"复盘报告_{record['stock_code']}_{record['created_at'][:10]}.txt",
-                            mime="text/plain"
+                            mime="text/plain",
+                            key=f"download_history_{i}_{record['id']}"
                         )
             else:
                 st.info("该股票暂无历史记录")
