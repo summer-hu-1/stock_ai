@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 
 DB_NAME = "stock_history.db"
@@ -46,43 +46,119 @@ def init_db():
     )
     """)
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS hot_sectors_cache (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sector_name TEXT,
+        change_pct REAL,
+        turnover_rate REAL,
+        rise_count INTEGER,
+        fall_count INTEGER,
+        cached_at TEXT
+    )
+    """)
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS system_metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at TEXT
+    )
+    """)
+
     conn.commit()
     conn.close()
+
+    cleanup_old_data_if_needed()
+
+
+def cleanup_old_data_if_needed():
+    """按需清理旧数据 - 只在需要时才清理（一周一次）"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    now = datetime.now()
+
+    try:
+        cursor.execute("SELECT value FROM system_metadata WHERE key = 'last_cleanup_date'")
+        result = cursor.fetchone()
+        last_cleanup_date = result[0] if result else None
+
+        need_cleanup = False
+        if not last_cleanup_date:
+            need_cleanup = True
+            print("🗑️ 首次运行，执行清理")
+        else:
+            try:
+                last_cleanup = datetime.strptime(last_cleanup_date, "%Y-%m-%d")
+                days_since = (now - last_cleanup).days
+                if days_since >= 7:
+                    need_cleanup = True
+                    print(f"🗑️ 距离上次清理已 {days_since} 天，执行清理")
+            except (ValueError, TypeError):
+                need_cleanup = True
+                print("🗑️ 上次清理日期格式错误，执行清理")
+
+        if need_cleanup:
+            cursor.execute("DELETE FROM market_sentiment WHERE date < ?", (today,))
+            cursor.execute("DELETE FROM hot_sectors_cache WHERE cached_at < ?", (today,))
+
+            cursor.execute("""
+            INSERT OR REPLACE INTO system_metadata (key, value, updated_at)
+            VALUES (?, ?, ?)
+            """, ("last_cleanup_date", today, now.strftime("%Y-%m-%d %H:%M:%S")))
+
+            conn.commit()
+            print("✅ 清理完成")
+        else:
+            print("📦 不需要清理，数据较新")
+
+    except Exception as e:
+        print(f"清理数据失败: {e}")
+    finally:
+        conn.close()
 
 
 def save_analysis(stock_data, ai_result, market_mood=""):
     """保存个股分析记录"""
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
 
-    cursor.execute("""
-    INSERT INTO stock_analysis (
-        stock_code,
-        stock_name,
-        price,
-        change_pct,
-        volume,
-        turnover,
-        amplitude,
-        market_mood,
-        ai_summary,
-        created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        stock_data["code"],
-        stock_data["name"],
-        stock_data["price"],
-        stock_data["price_change_pct"],
-        stock_data["volume"],
-        stock_data["turnover_rate"],
-        stock_data["amplitude"],
-        market_mood,
-        ai_result,
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    ))
+        cursor.execute("""
+        INSERT INTO stock_analysis (
+            stock_code,
+            stock_name,
+            price,
+            change_pct,
+            volume,
+            turnover,
+            amplitude,
+            market_mood,
+            ai_summary,
+            created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            stock_data["code"],
+            stock_data["name"],
+            stock_data["price"],
+            stock_data["price_change_pct"],
+            stock_data["volume"],
+            stock_data["turnover_rate"],
+            stock_data["amplitude"],
+            market_mood,
+            ai_result,
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ))
 
-    conn.commit()
-    conn.close()
+        conn.commit()
+        conn.close()
+        print(f"✅ 分析记录已保存: {stock_data['name']}({stock_data['code']})")
+        return True
+    except Exception as e:
+        print(f"❌ 保存分析记录失败: {e}")
+        return False
 
 
 def save_market_sentiment(sentiment_data):
@@ -130,6 +206,109 @@ def save_market_sentiment(sentiment_data):
         print(f"保存市场情绪失败: {e}")
     finally:
         conn.close()
+
+
+def get_cached_market_sentiment():
+    """获取当天的缓存市场情绪数据"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT date, limit_up_count, limit_down_count, bomb_rate, avg_change,
+           market_mood, rising_count, falling_count, rise_ratio,
+           strong_count, weak_count, total_volume, created_at
+    FROM market_sentiment
+    WHERE date = ?
+    ORDER BY created_at DESC
+    LIMIT 1
+    """, (today,))
+
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+        return {
+            "date": row[0],
+            "limit_up_count": row[1],
+            "limit_down_count": row[2],
+            "bomb_rate": row[3],
+            "avg_change": row[4],
+            "market_mood": row[5],
+            "rising_count": row[6],
+            "falling_count": row[7],
+            "rise_ratio": row[8],
+            "strong_count": row[9],
+            "weak_count": row[10],
+            "total_volume": row[11],
+            "created_at": row[12]
+        }
+    return None
+
+
+def save_hot_sectors_cache(hot_sectors):
+    """保存热门板块到缓存"""
+    if not hot_sectors:
+        return
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("DELETE FROM hot_sectors_cache WHERE cached_at < ?", (today,))
+
+        for sector in hot_sectors:
+            cursor.execute("""
+            INSERT INTO hot_sectors_cache (
+                sector_name, change_pct, turnover_rate, rise_count, fall_count, cached_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                sector.get("name", ""),
+                sector.get("change_pct", 0),
+                sector.get("turnover_rate", 0),
+                sector.get("rise_count", 0),
+                sector.get("fall_count", 0),
+                today
+            ))
+
+        conn.commit()
+        print(f"✅ 热门板块缓存已更新: {len(hot_sectors)} 个板块")
+    except Exception as e:
+        print(f"保存热门板块缓存失败: {e}")
+    finally:
+        conn.close()
+
+
+def get_cached_hot_sectors():
+    """获取缓存的热门板块数据"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT sector_name, change_pct, turnover_rate, rise_count, fall_count
+    FROM hot_sectors_cache
+    WHERE cached_at = ?
+    ORDER BY change_pct DESC
+    LIMIT 15
+    """, (today,))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    if rows:
+        return [
+            {
+                "name": row[0],
+                "change_pct": row[1],
+                "turnover_rate": row[2],
+                "rise_count": row[3],
+                "fall_count": row[4]
+            }
+            for row in rows
+        ]
+    return None
 
 
 def get_stock_history(stock_code, limit=20):

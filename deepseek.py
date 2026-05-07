@@ -17,12 +17,12 @@ def check_balance():
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=1
         )
-        return "API 连接成功"
+        return True, "API 连接成功"
     except Exception as e:
         error_str = str(e)
         if "402" in error_str or "Insufficient Balance" in error_str:
-            return "余额不足，请到 DeepSeek 平台充值"
-        return f"错误: {error_str}"
+            return False, "余额不足，请到 DeepSeek 平台充值"
+        return False, f"错误: {error_str}"
 
 def stock_review(stock_code, stock_data, market_sentiment=None, hot_sectors=None):
     today = datetime.now()

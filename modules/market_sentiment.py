@@ -1,11 +1,22 @@
 import akshare as ak
 import pandas as pd
 from datetime import datetime
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from modules.storage import get_cached_market_sentiment, save_market_sentiment, get_cached_hot_sectors, save_hot_sectors_cache
 
-def get_market_sentiment():
+def get_market_sentiment(use_cache=True):
     """
     获取A股全市场情绪数据
+    use_cache: 是否优先使用缓存数据
     """
+    if use_cache:
+        cached = get_cached_market_sentiment()
+        if cached:
+            print("📦 使用缓存的市场情绪数据")
+            return cached
+
     try:
         df = ak.stock_zh_a_spot_em()
 
@@ -46,7 +57,7 @@ def get_market_sentiment():
         total_volume = df["成交额"].sum()
         market_cap_total = df["总市值"].sum() if "总市值" in df.columns else 0
 
-        return {
+        result = {
             "limit_up_count": limit_up_count,
             "limit_down_count": limit_down_count,
             "bomb_rate": round(bomb_rate, 2),
@@ -62,8 +73,16 @@ def get_market_sentiment():
             "total_volume": round(total_volume / 1e12, 2),
             "market_cap": round(market_cap_total / 1e12, 2) if market_cap_total else 0
         }
+
+        save_market_sentiment(result)
+        print("✅ 市场情绪数据已获取并保存")
+        return result
     except Exception as e:
         print(f"获取市场情绪数据失败: {e}")
+        cached = get_cached_market_sentiment()
+        if cached:
+            print("📦 获取失败，返回缓存数据")
+            return cached
         return None
 
 def get_sector_data():
@@ -102,10 +121,17 @@ def get_sector_data():
         print(f"获取板块数据失败: {e}")
         return None
 
-def get_hot_sectors():
+def get_hot_sectors(use_cache=True):
     """
     获取热门板块（概念板块涨幅排行）
+    use_cache: 是否优先使用缓存数据
     """
+    if use_cache:
+        cached = get_cached_hot_sectors()
+        if cached:
+            print("📦 使用缓存的热门板块数据")
+            return cached
+
     try:
         df = ak.stock_board_concept_name_em()
 
@@ -121,9 +147,15 @@ def get_hot_sectors():
                 "fall_count": int(row["下跌家数"])
             })
 
+        save_hot_sectors_cache(result)
+        print("✅ 热门板块数据已获取并保存")
         return result
     except Exception as e:
         print(f"获取热门板块失败: {e}")
+        cached = get_cached_hot_sectors()
+        if cached:
+            print("📦 获取失败，返回缓存数据")
+            return cached
         return None
 
 def format_market_sentiment(data, sector_data=None, hot_sectors=None):
