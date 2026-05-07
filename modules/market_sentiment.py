@@ -3,22 +3,44 @@ import pandas as pd
 from datetime import datetime
 import sys
 import os
+import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from modules.storage import get_cached_market_sentiment, save_market_sentiment, get_cached_hot_sectors, save_hot_sectors_cache
+
+_sentiment_cache = None
+_sentiment_cache_time = None
+_sentiment_cache_ttl = 300
 
 def get_market_sentiment(use_cache=True):
     """
     获取A股全市场情绪数据
     use_cache: 是否优先使用缓存数据
     """
-    if use_cache:
-        cached = get_cached_market_sentiment()
-        if cached:
-            print("📦 使用缓存的市场情绪数据")
-            return cached
+    global _sentiment_cache, _sentiment_cache_time
+
+    if use_cache and _sentiment_cache is not None and _sentiment_cache_time is not None:
+        if time.time() - _sentiment_cache_time < _sentiment_cache_ttl:
+            print("📦 使用内存缓存的市场情绪数据")
+            return _sentiment_cache
+
+    cached = get_cached_market_sentiment()
+    if use_cache and cached:
+        print("📦 使用数据库缓存的市场情绪数据")
+        _sentiment_cache = cached
+        _sentiment_cache_time = time.time()
+        return cached
 
     try:
+        print("正在获取市场情绪数据...")
         df = ak.stock_zh_a_spot_em()
+        
+        if df is None or df.empty:
+            print("警告: 获取到的市场数据为空")
+            if _sentiment_cache is not None:
+                return _sentiment_cache
+            if cached:
+                return cached
+            return None
 
         limit_up = df[df["涨跌幅"] >= 9.8]
         limit_up_count = len(limit_up)
@@ -75,13 +97,17 @@ def get_market_sentiment(use_cache=True):
         }
 
         save_market_sentiment(result)
+        _sentiment_cache = result
+        _sentiment_cache_time = time.time()
         print("✅ 市场情绪数据已获取并保存")
         return result
     except Exception as e:
         print(f"获取市场情绪数据失败: {e}")
-        cached = get_cached_market_sentiment()
+        if _sentiment_cache is not None:
+            print("📦 获取失败，返回内存缓存数据")
+            return _sentiment_cache
         if cached:
-            print("📦 获取失败，返回缓存数据")
+            print("📦 获取失败，返回数据库缓存数据")
             return cached
         return None
 
@@ -91,6 +117,10 @@ def get_sector_data():
     """
     try:
         df = ak.stock_board_industry_name_em()
+        
+        if df is None or df.empty:
+            print("警告: 获取到的板块数据为空")
+            return None
 
         top_gainers = df.nlargest(10, "涨跌幅")[["板块名称", "涨跌幅", "总市值", "上涨家数", "下跌家数"]]
         top_losers = df.nsmallest(10, "涨跌幅")[["板块名称", "涨跌幅", "总市值", "上涨家数", "下跌家数"]]
@@ -121,19 +151,40 @@ def get_sector_data():
         print(f"获取板块数据失败: {e}")
         return None
 
+_hot_sectors_cache = None
+_hot_sectors_cache_time = None
+_hot_sectors_cache_ttl = 300
+
 def get_hot_sectors(use_cache=True):
     """
     获取热门板块（概念板块涨幅排行）
     use_cache: 是否优先使用缓存数据
     """
-    if use_cache:
-        cached = get_cached_hot_sectors()
-        if cached:
-            print("📦 使用缓存的热门板块数据")
-            return cached
+    global _hot_sectors_cache, _hot_sectors_cache_time
+
+    if use_cache and _hot_sectors_cache is not None and _hot_sectors_cache_time is not None:
+        if time.time() - _hot_sectors_cache_time < _hot_sectors_cache_ttl:
+            print("📦 使用内存缓存的热门板块数据")
+            return _hot_sectors_cache
+
+    cached = get_cached_hot_sectors()
+    if use_cache and cached:
+        print("📦 使用数据库缓存的热门板块数据")
+        _hot_sectors_cache = cached
+        _hot_sectors_cache_time = time.time()
+        return cached
 
     try:
+        print("正在获取热门板块数据...")
         df = ak.stock_board_concept_name_em()
+        
+        if df is None or df.empty:
+            print("警告: 获取到的热门板块数据为空")
+            if _hot_sectors_cache is not None:
+                return _hot_sectors_cache
+            if cached:
+                return cached
+            return None
 
         hot_sectors = df.nlargest(15, "涨跌幅")[["板块名称", "涨跌幅", "换手率", "上涨家数", "下跌家数", "总市值"]]
 
@@ -148,13 +199,17 @@ def get_hot_sectors(use_cache=True):
             })
 
         save_hot_sectors_cache(result)
+        _hot_sectors_cache = result
+        _hot_sectors_cache_time = time.time()
         print("✅ 热门板块数据已获取并保存")
         return result
     except Exception as e:
         print(f"获取热门板块失败: {e}")
-        cached = get_cached_hot_sectors()
+        if _hot_sectors_cache is not None:
+            print("📦 获取失败，返回内存缓存数据")
+            return _hot_sectors_cache
         if cached:
-            print("📦 获取失败，返回缓存数据")
+            print("📦 获取失败，返回数据库缓存数据")
             return cached
         return None
 

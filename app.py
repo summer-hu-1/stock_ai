@@ -13,7 +13,7 @@ from agents.flow_agent import format_flow_report
 from agents.risk_agent import format_risk_report
 from modules.storage import init_db, save_analysis, save_market_sentiment
 from deepseek import stock_review, check_balance
-from modules.market_data import get_stock_data
+from modules.market_data import get_stock_data, get_stock_data_fast
 from modules.market_sentiment import get_market_sentiment, get_hot_sectors
 
 init_db()
@@ -66,7 +66,10 @@ with tab1:
 
             progress_bar.progress(10, text="📈 步骤 1/5：正在获取个股数据...")
             with st.spinner("📈 正在获取个股数据..."):
-                stock_data = get_stock_data(stock)
+                if selected_data_mode == "⚡ 极速模式（仅个股数据）":
+                    stock_data = get_stock_data_fast(stock)
+                else:
+                    stock_data = get_stock_data(stock)
 
             if not stock_data:
                 st.error(f"未找到股票代码: {stock}")
@@ -78,7 +81,22 @@ with tab1:
                 hot_sectors = None
 
                 if selected_data_mode == "⚡ 极速模式（仅个股数据）":
-                    sentiment_data = {"market_mood": "待获取", "limit_up_count": 0, "rising_count": 0}
+                    sentiment_data = {
+                        "market_mood": "待获取", 
+                        "limit_up_count": 0, 
+                        "limit_down_count": 0,
+                        "bomb_rate": 0.0,
+                        "avg_change": 0.0,
+                        "rising_count": 0,
+                        "falling_count": 0,
+                        "flat_count": 0,
+                        "total_count": 0,
+                        "rise_ratio": 0.0,
+                        "strong_count": 0,
+                        "weak_count": 0,
+                        "total_volume": 0.0,
+                        "market_cap": 0.0
+                    }
                     hot_sectors = []
                     with st.expander("📈 个股行情数据", expanded=True):
                         st.json(stock_data)
