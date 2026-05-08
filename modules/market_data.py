@@ -2,10 +2,170 @@ import akshare as ak
 import pandas as pd
 from datetime import datetime
 import time
+import os
+import requests
+import json
+import urllib3
+
+os.environ['HTTP_PROXY'] = ''
+os.environ['HTTPS_PROXY'] = ''
+os.environ['http_proxy'] = ''
+os.environ['https_proxy'] = ''
+os.environ['REQUESTS_CA_BUNDLE'] = ''
+os.environ['CURL_CA_BUNDLE'] = ''
+
+urllib3.disable_warnings()
+
+ak_session = requests.Session()
+ak_session.trust_env = False
+ak_session.proxies = {}
+
+original_session_request = requests.Session.request
+
+def no_proxy_session_request(self, method, url, **kwargs):
+    kwargs.pop('proxies', None)
+    return original_session_request(self, method, url, proxies={}, **kwargs)
+
+requests.Session.request = no_proxy_session_request
 
 _stock_data_cache = {}
 _stock_data_cache_time = {}
 _stock_data_cache_ttl = 60
+
+
+def test_api_connection():
+    """测试API连接状态"""
+    results = []
+    
+    # 测试东方财富API
+    try:
+        import requests
+        session = requests.Session()
+        session.trust_env = False
+        session.proxies = {}
+        
+        start_time = time.time()
+        r = session.get('https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=0.000001', timeout=10)
+        response_time = (time.time() - start_time) * 1000
+        
+        if r.status_code == 200:
+            data = r.json()
+            if data.get('data'):
+                results.append({
+                    'name': '东方财富K线API',
+                    'status': 'success',
+                    'response_time': f'{response_time:.2f}ms',
+                    'message': '连接成功'
+                })
+            else:
+                results.append({
+                    'name': '东方财富K线API',
+                    'status': 'warning',
+                    'response_time': f'{response_time:.2f}ms',
+                    'message': '返回数据异常'
+                })
+        else:
+            results.append({
+                'name': '东方财富K线API',
+                'status': 'error',
+                'response_time': f'{response_time:.2f}ms',
+                'message': f'HTTP错误: {r.status_code}'
+            })
+    except Exception as e:
+        error_msg = str(e)
+        if 'ProxyError' in error_msg:
+            results.append({
+                'name': '东方财富K线API',
+                'status': 'error',
+                'response_time': '-',
+                'message': '代理错误：请检查代理设置'
+            })
+        elif 'ConnectionError' in error_msg or 'timeout' in error_msg.lower():
+            results.append({
+                'name': '东方财富K线API',
+                'status': 'error',
+                'response_time': '-',
+                'message': '连接超时：网络可能不可用'
+            })
+        else:
+            results.append({
+                'name': '东方财富K线API',
+                'status': 'error',
+                'response_time': '-',
+                'message': f'连接失败: {str(e)[:50]}'
+            })
+    
+    # 测试实时行情API
+    try:
+        import requests
+        session = requests.Session()
+        session.trust_env = False
+        session.proxies = {}
+        
+        start_time = time.time()
+        r = session.get('https://push.eastmoney.com/api/qt/stock/get?secid=1.600519', timeout=10)
+        response_time = (time.time() - start_time) * 1000
+        
+        if r.status_code == 200:
+            data = r.json()
+            if data.get('data'):
+                results.append({
+                    'name': '东方财富实时行情API',
+                    'status': 'success',
+                    'response_time': f'{response_time:.2f}ms',
+                    'message': '连接成功'
+                })
+            else:
+                results.append({
+                    'name': '东方财富实时行情API',
+                    'status': 'warning',
+                    'response_time': f'{response_time:.2f}ms',
+                    'message': '返回数据异常'
+                })
+        else:
+            results.append({
+                'name': '东方财富实时行情API',
+                'status': 'error',
+                'response_time': f'{response_time:.2f}ms',
+                'message': f'HTTP错误: {r.status_code}'
+            })
+    except Exception as e:
+        results.append({
+            'name': '东方财富实时行情API',
+            'status': 'error',
+            'response_time': '-',
+            'message': f'连接失败: {str(e)[:50]}'
+        })
+    
+    # 测试akshare
+    try:
+        start_time = time.time()
+        df = ak.stock_zh_a_spot_em()
+        response_time = (time.time() - start_time) * 1000
+        
+        if df is not None and not df.empty:
+            results.append({
+                'name': 'akshare A股行情接口',
+                'status': 'success',
+                'response_time': f'{response_time:.2f}ms',
+                'message': f'成功获取 {len(df)} 条股票数据'
+            })
+        else:
+            results.append({
+                'name': 'akshare A股行情接口',
+                'status': 'warning',
+                'response_time': f'{response_time:.2f}ms',
+                'message': '返回数据为空'
+            })
+    except Exception as e:
+        results.append({
+            'name': 'akshare A股行情接口',
+            'status': 'error',
+            'response_time': '-',
+            'message': f'调用失败: {str(e)[:50]}'
+        })
+    
+    return results
 
 def get_stock_data(stock_code, use_cache=True):
     """
@@ -77,6 +237,11 @@ def get_stock_data(stock_code, use_cache=True):
         print(f"获取股票数据失败: {e}")
         import traceback
         traceback.print_exc()
+        
+        if "ProxyError" in str(e) or "Max retries exceeded" in str(e):
+            print(f"⚠️ 网络代理错误，尝试使用极速模式获取数据")
+            return get_stock_data_fast(stock_code, use_cache=False)
+        
         if stock_code in _stock_data_cache:
             print(f"📦 获取失败，返回缓存数据")
             return _stock_data_cache[stock_code]
@@ -165,6 +330,10 @@ def get_stock_data_fast(stock_code, use_cache=True, target_date=None):
         print(f"极速获取股票数据失败: {e}")
         import traceback
         traceback.print_exc()
+        
+        if "ProxyError" in str(e) or "Max retries exceeded" in str(e):
+            print(f"⚠️ 网络代理错误，请检查网络连接或代理设置")
+        
         if cache_key in _stock_data_cache:
             print(f"📦 获取失败，返回缓存数据")
             return _stock_data_cache[cache_key]

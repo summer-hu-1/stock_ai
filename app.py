@@ -13,7 +13,7 @@ from agents.flow_agent import format_flow_report
 from agents.risk_agent import format_risk_report
 from modules.storage import init_db, save_analysis, save_market_sentiment, get_all_companies, save_company_info, get_company_by_code
 from deepseek import stock_review, check_balance
-from modules.market_data import get_stock_data, get_stock_data_fast
+from modules.market_data import get_stock_data, get_stock_data_fast, test_api_connection
 from modules.market_sentiment import get_market_sentiment, get_hot_sectors
 
 init_db()
@@ -51,6 +51,32 @@ def get_company_list():
 
 st.set_page_config(page_title="AI股票复盘系统 V6", page_icon="🧠", layout="wide")
 st.title("🧠 AI股票复盘系统（多Agent架构版）")
+
+col_title, col_test = st.columns([4, 1])
+with col_test:
+    if st.button("🔍 检测网络连接", help="测试API连接状态"):
+        with st.spinner("正在检测网络连接..."):
+            results = test_api_connection()
+            
+            st.subheader("🔌 网络检测结果")
+            for result in results:
+                status_color = "green" if result['status'] == 'success' else "yellow" if result['status'] == 'warning' else "red"
+                status_icon = "✅" if result['status'] == 'success' else "⚠️" if result['status'] == 'warning' else "❌"
+                
+                st.markdown(f"""
+                <div style="padding: 8px; border-radius: 4px; margin-bottom: 8px; background-color: #f8f9fa;">
+                    <strong>{status_icon} {result['name']}</strong>
+                    <br/>
+                    <span style="color: {status_color};">{result['message']}</span>
+                    <span style="float: right; font-size: 12px; color: #666;">{result['response_time']}</span>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            all_success = all(r['status'] == 'success' for r in results)
+            if all_success:
+                st.success("🎉 所有API连接正常！")
+            else:
+                st.warning("⚠️ 部分API连接存在问题，请检查网络设置")
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠 多Agent分析（完整）", "📊 各Agent详情", "📈 历史记录", "📅 情绪周期"])
 
@@ -386,7 +412,7 @@ with tab3:
 
 with tab4:
     st.header("📈 历史记录")
-    from modules.storage import get_all_stocks, get_stock_history
+    from modules.storage import get_all_stocks, get_stock_history, delete_stock_history
 
     if 'refresh_history' not in st.session_state:
         st.session_state.refresh_history = True
@@ -435,13 +461,23 @@ with tab4:
                         with col_report:
                             st.markdown(record['ai_summary'])
 
-                        st.download_button(
-                            label="📥 下载报告",
-                            data=record['ai_summary'],
-                            file_name=f"复盘报告_{record['stock_code']}_{record['created_at'][:10]}.txt",
-                            mime="text/plain",
-                            key=f"download_history_{i}_{record['id']}"
-                        )
+                        col_download, col_delete = st.columns([1, 1])
+                        with col_download:
+                            st.download_button(
+                                label="📥 下载报告",
+                                data=record['ai_summary'],
+                                file_name=f"复盘报告_{record['stock_code']}_{record['created_at'][:10]}.txt",
+                                mime="text/plain",
+                                key=f"download_history_{i}_{record['id']}"
+                            )
+                        with col_delete:
+                            if st.button(f"🗑️ 删除记录", key=f"delete_history_{i}_{record['id']}"):
+                                if delete_stock_history(record['id']):
+                                    st.success("✅ 记录已删除")
+                                    st.session_state.refresh_history = True
+                                    st.rerun()
+                                else:
+                                    st.error("❌ 删除失败")
             else:
                 st.info("该股票暂无历史记录")
     else:

@@ -445,6 +445,23 @@ def format_history_for_display(history):
     return formatted
 
 
+def delete_stock_history(record_id):
+    """删除指定的股票分析历史记录"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    DELETE FROM stock_analysis
+    WHERE id = ?
+    """, (record_id,))
+
+    conn.commit()
+    deleted_rows = cursor.rowcount
+    conn.close()
+
+    return deleted_rows > 0
+
+
 def get_all_companies():
     """获取所有公司信息"""
     conn = sqlite3.connect(DB_PATH)
