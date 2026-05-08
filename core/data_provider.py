@@ -1,22 +1,23 @@
-import akshare as ak
-import pandas as pd
 import time
-import os
-from typing import List
 
 from core.context import MarketContext
-
-# 禁用代理环境变量
-os.environ['HTTP_PROXY'] = ''
-os.environ['HTTPS_PROXY'] = ''
-os.environ['http_proxy'] = ''
-os.environ['https_proxy'] = ''
+from core.provider_factory import ProviderFactory
 
 
 class DataProvider:
     """
-    统一数据提供者
-    负责从 AkShare 获取所有数据并构建统一的 MarketContext
+    统一数据提供者（多市场支持）
+    负责根据股票代码自动选择数据源并构建统一的 MarketContext
+    
+    支持市场：
+    - A股: 代码以 .SZ 或 .SH 结尾
+    - 港股: 代码以 .HK 结尾  
+    - 美股: 其他格式
+    
+    核心设计：
+    1. 使用 ProviderFactory 自动选择数据源
+    2. 所有数据通过统一接口获取
+    3. 构建统一的 MarketContext 供所有 Agent 使用
     """
 
     _cache = {}
@@ -26,7 +27,16 @@ class DataProvider:
     @staticmethod
     def build_context(stock_code: str) -> MarketContext:
         """
-        构建完整的市场上下文
+        构建完整的市场上下文（多市场支持）
+        
+        Args:
+            stock_code: 股票代码，支持多种格式
+                        A股: 601360.SH, 000002.SZ
+                        港股: 00700.HK
+                        美股: AAPL, MSFT
+        
+        Returns:
+            MarketContext: 统一的市场上下文对象
         """
         cache_key = f"context_{stock_code}"
         current_time = time.time()
@@ -40,76 +50,41 @@ class DataProvider:
         try:
             print(f"🔄 正在构建 MarketContext: {stock_code}")
 
-            # 1. 获取A股实时行情数据
-            spot_df = ak.stock_zh_a_spot_em()
+            # 1. 根据股票代码获取对应的 Provider
+            provider = ProviderFactory.get_provider(stock_code)
+            market_type = ProviderFactory.detect_market(stock_code)
+            
+            print(f"📍 检测到市场类型: {market_type}")
 
-            if spot_df is None or spot_df.empty:
-                raise Exception("获取行情数据失败")
+            # 2. 获取个股数据
+            stock_data = provider.get_stock_data(stock_code)
+            stock_name = stock_data.get("name", stock_code)
 
-            # 2. 获取目标股票数据
-            stock_row = spot_df[spot_df["代码"] == stock_code]
+            # 3. 获取市场情绪
+            market_sentiment = provider.get_market_sentiment()
 
-            if stock_row.empty:
-                raise Exception(f"未找到股票: {stock_code}")
+            # 4. 获取板块数据
+            sectors = provider.get_sectors()
 
-            stock_data = {
-                "price": float(stock_row["最新价"].values[0]),
-                "change_pct": float(stock_row["涨跌幅"].values[0]),
-                "turnover": float(stock_row["换手率"].values[0]),
-                "volume": float(stock_row["成交额"].values[0]),
-                "high": float(stock_row["最高"].values[0]),
-                "low": float(stock_row["最低"].values[0]),
-                "open": float(stock_row["今开"].values[0]),
-                "close": float(stock_row["昨收"].values[0]),
-                "amplitude": float(stock_row["振幅"].values[0]),
-                "volume_ratio": float(stock_row["量比"].values[0]),
-                "market_cap": float(stock_row["总市值"].values[0]) if "总市值" in stock_row.columns else 0.0,
-                "float_cap": float(stock_row["流通市值"].values[0]) if "流通市值" in stock_row.columns else 0.0,
-            }
-
-            # 3. 计算市场情绪
-            up_count = len(spot_df[spot_df["涨跌幅"] > 0])
-            down_count = len(spot_df[spot_df["涨跌幅"] < 0])
-            flat_count = len(spot_df[spot_df["涨跌幅"] == 0])
-
-            market_sentiment = {
-                "up_count": up_count,
-                "down_count": down_count,
-                "flat_count": flat_count,
-                "up_ratio": up_count / len(spot_df) if len(spot_df) > 0 else 0.0,
-                "total_stocks": len(spot_df),
-            }
-
-            # 4. 获取热门板块
-            sector_df = ak.stock_board_industry_name_em()
-            sectors = []
-            if sector_df is not None and not sector_df.empty:
-                for _, row in sector_df.head(10).iterrows():
-                    sectors.append({
-                        "name": row.get("板块名称", ""),
-                        "change_pct": float(row.get("涨跌幅", 0)),
-                        "volume": float(row.get("成交额", 0)),
-                        "stocks": int(row.get("家数", 0)),
-                        "leader": row.get("领涨股", ""),
-                    })
-
-            # 5. 计算全市场成交额（亿元）
-            market_volume = float(spot_df["成交额"].sum() / 100000000)
+            # 5. 获取全市场成交额
+            market_volume = provider.get_market_volume()
 
             # 6. 评估风险等级
             risk_level = DataProvider._calculate_risk(
-                stock_data["change_pct"],
-                stock_data["turnover"],
-                market_sentiment["up_ratio"]
+                stock_data.get("change_pct", 0),
+                stock_data.get("turnover", 0),
+                market_sentiment.get("up_ratio", 0.5)
             )
 
-            # 7. 获取热门股票
-            hot_stocks = DataProvider._get_hot_stocks(spot_df)
+            # 7. 获取热门股票（仅A股支持）
+            hot_stocks = []
+            if market_type == "A":
+                hot_stocks = DataProvider._get_hot_stocks()
 
             # 构建上下文
             context = MarketContext(
                 stock_code=stock_code,
-                stock_name=stock_row["名称"].values[0],
+                stock_name=stock_name,
                 stock_data=stock_data,
                 market_sentiment=market_sentiment,
                 sectors=sectors,
@@ -162,21 +137,31 @@ class DataProvider:
             return "低"
 
     @staticmethod
-    def _get_hot_stocks(spot_df: pd.DataFrame) -> List[dict]:
+    def _get_hot_stocks() -> list:
         """
-        获取热门股票列表（按成交额排序）
+        获取热门股票列表（按成交额排序）- 仅A股
         """
-        hot_df = spot_df.sort_values("成交额", ascending=False).head(10)
-        hot_stocks = []
-        for _, row in hot_df.iterrows():
-            hot_stocks.append({
-                "code": row["代码"],
-                "name": row["名称"],
-                "price": float(row["最新价"]),
-                "change_pct": float(row["涨跌幅"]),
-                "volume": float(row["成交额"]),
-            })
-        return hot_stocks
+        import akshare as ak
+        import pandas as pd
+        
+        try:
+            spot_df = ak.stock_zh_a_spot_em()
+            if spot_df is None or spot_df.empty:
+                return []
+            
+            hot_df = spot_df.sort_values("成交额", ascending=False).head(10)
+            hot_stocks = []
+            for _, row in hot_df.iterrows():
+                hot_stocks.append({
+                    "code": row["代码"],
+                    "name": row["名称"],
+                    "price": float(row["最新价"]),
+                    "change_pct": float(row["涨跌幅"]),
+                    "volume": float(row["成交额"]),
+                })
+            return hot_stocks
+        except Exception:
+            return []
 
     @staticmethod
     def clear_cache():

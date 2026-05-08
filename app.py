@@ -11,6 +11,10 @@ from deepseek import stock_review, check_balance
 from modules.market_data import get_stock_data, get_stock_data_fast, test_api_connection, set_mock_data_mode
 from modules.market_sentiment import get_market_sentiment, get_hot_sectors
 
+# 多市场数据服务
+from core.data_service import DataService
+from core.market_registry import get_market_names, get_market_config
+
 init_db()
 
 
@@ -86,35 +90,111 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠
 with tab1:
     st.header("⚡ 单Prompt分析（快速）")
 
-    companies = get_company_list()
-    if not companies:
-        companies = []
+    # 多市场选择 + 刷新按钮
+    col_market, col_btn_refresh = st.columns([1, 1])
+    
+    with col_market:
+        market_name = st.selectbox(
+            "选择市场",
+            get_market_names(),
+            key="market_select",
+            help="选择要分析的股票市场"
+        )
+    
+    with col_btn_refresh:
+        st.write("")
+        st.write("")
+        if st.button("🔄 刷新公司名称", key="refresh_companies", help="从数据源获取最新的公司名称和股票代码"):
+            with st.spinner("📊 正在从数据源获取公司数据..."):
+                try:
+                    if market_name == "A股":
+                        import akshare as ak
+                        df = ak.stock_zh_a_spot_em()
+                        if df is not None and not df.empty:
+                            stocks = []
+                            for _, row in df.iterrows():
+                                stocks.append({
+                                    "code": str(row.get("代码", "")),
+                                    "name": str(row.get("名称", "")),
+                                    "sector": str(row.get("行业", "")) if "行业" in df.columns else ""
+                                })
+                            from core.symbol_resolver import SymbolResolver
+                            from core.market_registry import get_market_config
+                            resolver = SymbolResolver(get_market_config(market_name))
+                            resolver.bulk_add_stocks(stocks)
+                            st.success(f"✅ 已成功获取并保存 {len(stocks)} 家{market_name}公司数据！")
+                        else:
+                            st.error("❌ 获取数据失败")
+                    elif market_name == "港股":
+                        import akshare as ak
+                        df = ak.stock_hk_spot_em()
+                        if df is not None and not df.empty:
+                            stocks = []
+                            for _, row in df.iterrows():
+                                stocks.append({
+                                    "code": str(row.get("代码", "")),
+                                    "name": str(row.get("名称", "")),
+                                    "sector": ""
+                                })
+                            from core.symbol_resolver import SymbolResolver
+                            from core.market_registry import get_market_config
+                            resolver = SymbolResolver(get_market_config(market_name))
+                            resolver.bulk_add_stocks(stocks)
+                            st.success(f"✅ 已成功获取并保存 {len(stocks)} 家{market_name}公司数据！")
+                        else:
+                            st.error("❌ 获取数据失败")
+                    elif market_name == "美股":
+                        popular_stocks = [
+                            {"code": "AAPL", "name": "苹果", "name_en": "Apple"},
+                            {"code": "MSFT", "name": "微软", "name_en": "Microsoft"},
+                            {"code": "GOOGL", "name": "谷歌", "name_en": "Google"},
+                            {"code": "AMZN", "name": "亚马逊", "name_en": "Amazon"},
+                            {"code": "META", "name": "Meta", "name_en": "Meta"},
+                            {"code": "TSLA", "name": "特斯拉", "name_en": "Tesla"},
+                            {"code": "NVDA", "name": "英伟达", "name_en": "NVIDIA"},
+                            {"code": "JPM", "name": "摩根大通", "name_en": "JPMorgan"},
+                            {"code": "V", "name": "Visa", "name_en": "Visa"},
+                            {"code": "JNJ", "name": "强生", "name_en": "Johnson & Johnson"},
+                        ]
+                        from core.symbol_resolver import SymbolResolver
+                        from core.market_registry import get_market_config
+                        resolver = SymbolResolver(get_market_config(market_name))
+                        resolver.bulk_add_stocks(popular_stocks)
+                        st.success(f"✅ 已成功获取并保存 {len(popular_stocks)} 家{market_name}公司数据！")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ 获取数据失败: {str(e)}")
 
-    col_btn, col_info = st.columns([1, 4])
-    with col_btn:
-        if st.button("🔄 刷新数据", key="refresh_companies", help="点击从akshare全量加载公司数据"):
-            load_company_data()
-            st.rerun()
-    with col_info:
-        st.caption(f"📊 已加载 {len(companies)} 家公司 | 输入名称或代码搜索，选择或直接输入")
-
-    stock_display_options = [f"{c['name']}({c['code']})" for c in companies]
-    stock_code_map = {f"{c['name']}({c['code']})": c['code'] for c in companies}
-    stock_name_map = {f"{c['name']}({c['code']})": c['name'] for c in companies}
-
-    selected = st.selectbox(
-        "输入股票名称或代码，如：贵州茅台、600519",
-        options=[""] + stock_display_options,
-        key="stock_autocomplete",
+    # 公司搜索选择组件（只有一个下拉框）
+    service = DataService(market_name)
+    all_stocks = service.resolver.get_all_stocks()
+    
+    # 准备下拉选项
+    if all_stocks:
+        stock_options = {f"{s['name']}({s['code']})": s for s in all_stocks}
+        stock_options_list = [""] + list(stock_options.keys())
+        stock_count = len(all_stocks)
+    else:
+        stock_options = {}
+        stock_options_list = [""]
+        stock_count = 0
+    
+    # 单一下拉选择框
+    selected_display = st.selectbox(
+        f"📋 选择股票（已加载 {stock_count} 家公司）",
+        options=stock_options_list,
+        key="stock_select",
         format_func=lambda x: x if x else "请选择股票..."
     )
-
-    if selected:
-        stock = stock_code_map.get(selected, selected)
-        stock_name = stock_name_map.get(selected, "")
-    else:
-        stock = ""
-        stock_name = ""
+    
+    # 解析选中的股票
+    stock = ""
+    stock_name = ""
+    
+    if selected_display and selected_display in stock_options:
+        selected_stock = stock_options[selected_display]
+        stock = selected_stock["code"]
+        stock_name = selected_stock["name"]
 
 
 
