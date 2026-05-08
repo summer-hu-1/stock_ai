@@ -32,6 +32,127 @@ _stock_data_cache = {}
 _stock_data_cache_time = {}
 _stock_data_cache_ttl = 60
 
+_USE_MOCK_DATA = False
+
+
+def set_mock_data_mode(enable):
+    """设置是否使用模拟数据模式"""
+    global _USE_MOCK_DATA
+    _USE_MOCK_DATA = enable
+    return _USE_MOCK_DATA
+
+
+def get_mock_stock_data(stock_code):
+    """获取模拟股票数据（用于测试或网络不可用时）"""
+    mock_data = {
+        "000002": {
+            "code": "000002",
+            "name": "万科A",
+            "price": 12.58,
+            "price_change_pct": 2.35,
+            "volume": 156800000,
+            "turnover_rate": 1.85,
+            "amplitude": 4.20,
+            "volume_ratio": 1.25,
+            "high": 12.80,
+            "low": 12.25,
+            "open": 12.35,
+            "close": 12.30,
+            "market_cap": 285000000000,
+            "float_share": 228000000000,
+            "limit_status": "正常"
+        },
+        "600519": {
+            "code": "600519",
+            "name": "贵州茅台",
+            "price": 1685.00,
+            "price_change_pct": -1.25,
+            "volume": 285000000,
+            "turnover_rate": 0.35,
+            "amplitude": 2.15,
+            "volume_ratio": 0.85,
+            "high": 1705.00,
+            "low": 1678.00,
+            "open": 1700.00,
+            "close": 1706.00,
+            "market_cap": 2110000000000,
+            "float_share": 2110000000000,
+            "limit_status": "正常"
+        },
+        "000020": {
+            "code": "000020",
+            "name": "深华发A",
+            "price": 8.25,
+            "price_change_pct": 1.58,
+            "volume": 35600000,
+            "turnover_rate": 3.25,
+            "amplitude": 5.30,
+            "volume_ratio": 1.45,
+            "high": 8.45,
+            "low": 8.05,
+            "open": 8.10,
+            "close": 8.12,
+            "market_cap": 18500000000,
+            "float_share": 18500000000,
+            "limit_status": "正常"
+        },
+        "000858": {
+            "code": "000858",
+            "name": "五粮液",
+            "price": 145.80,
+            "price_change_pct": 0.85,
+            "volume": 185000000,
+            "turnover_rate": 0.65,
+            "amplitude": 2.80,
+            "volume_ratio": 1.10,
+            "high": 147.50,
+            "low": 143.80,
+            "open": 144.50,
+            "close": 144.60,
+            "market_cap": 785000000000,
+            "float_share": 785000000000,
+            "limit_status": "正常"
+        },
+        "601318": {
+            "code": "601318",
+            "name": "中国平安",
+            "price": 48.50,
+            "price_change_pct": -0.65,
+            "volume": 256000000,
+            "turnover_rate": 0.95,
+            "amplitude": 1.85,
+            "volume_ratio": 0.95,
+            "high": 49.20,
+            "low": 48.00,
+            "open": 48.80,
+            "close": 48.82,
+            "market_cap": 720000000000,
+            "float_share": 720000000000,
+            "limit_status": "正常"
+        }
+    }
+    
+    if stock_code in mock_data:
+        return mock_data[stock_code]
+    
+    return {
+        "code": stock_code,
+        "name": f"股票{stock_code}",
+        "price": 10.00,
+        "price_change_pct": 0.00,
+        "volume": 100000000,
+        "turnover_rate": 1.00,
+        "amplitude": 3.00,
+        "volume_ratio": 1.00,
+        "high": 10.30,
+        "low": 9.70,
+        "open": 10.00,
+        "close": 10.00,
+        "market_cap": 50000000000,
+        "float_share": 50000000000,
+        "limit_status": "正常"
+    }
+
 
 def test_api_connection():
     """测试API连接状态"""
@@ -172,7 +293,11 @@ def get_stock_data(stock_code, use_cache=True):
     获取A股基础行情数据
     use_cache: 是否使用缓存
     """
-    global _stock_data_cache, _stock_data_cache_time
+    global _stock_data_cache, _stock_data_cache_time, _USE_MOCK_DATA
+
+    if _USE_MOCK_DATA:
+        print(f"📋 使用模拟数据: {stock_code}")
+        return get_mock_stock_data(stock_code)
 
     current_time = time.time()
     if use_cache and stock_code in _stock_data_cache:
@@ -256,7 +381,11 @@ def get_stock_data_fast(stock_code, use_cache=True, target_date=None):
     Args:
         target_date: 目标日期，datetime对象或字符串(YYYY-MM-DD/YYYYMMDD)，None为最近交易日
     """
-    global _stock_data_cache, _stock_data_cache_time
+    global _stock_data_cache, _stock_data_cache_time, _USE_MOCK_DATA
+
+    if _USE_MOCK_DATA:
+        print(f"📋 使用模拟数据: {stock_code}")
+        return get_mock_stock_data(stock_code)
 
     current_time = time.time()
     

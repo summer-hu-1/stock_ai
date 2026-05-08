@@ -13,7 +13,7 @@ from agents.flow_agent import format_flow_report
 from agents.risk_agent import format_risk_report
 from modules.storage import init_db, save_analysis, save_market_sentiment, get_all_companies, save_company_info, get_company_by_code
 from deepseek import stock_review, check_balance
-from modules.market_data import get_stock_data, get_stock_data_fast, test_api_connection
+from modules.market_data import get_stock_data, get_stock_data_fast, test_api_connection, set_mock_data_mode
 from modules.market_sentiment import get_market_sentiment, get_hot_sectors
 
 init_db()
@@ -52,7 +52,7 @@ def get_company_list():
 st.set_page_config(page_title="AI股票复盘系统 V6", page_icon="🧠", layout="wide")
 st.title("🧠 AI股票复盘系统（多Agent架构版）")
 
-col_title, col_test = st.columns([4, 1])
+col_title, col_test, col_mock = st.columns([3, 1, 1])
 with col_test:
     if st.button("🔍 检测网络连接", help="测试API连接状态"):
         with st.spinner("正在检测网络连接..."):
@@ -77,6 +77,14 @@ with col_test:
                 st.success("🎉 所有API连接正常！")
             else:
                 st.warning("⚠️ 部分API连接存在问题，请检查网络设置")
+
+with col_mock:
+    mock_mode = st.toggle("🎭 模拟数据模式", help="使用模拟数据进行测试（无需网络）")
+    if mock_mode:
+        set_mock_data_mode(True)
+        st.success("✅ 已启用模拟数据模式")
+    else:
+        set_mock_data_mode(False)
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠 多Agent分析（完整）", "📊 各Agent详情", "📈 历史记录", "📅 情绪周期"])
 
