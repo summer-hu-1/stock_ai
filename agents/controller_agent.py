@@ -7,6 +7,9 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from datetime import datetime
 
+from core.data_provider import DataProvider
+from core.context import MarketContext
+
 load_dotenv()
 
 client = OpenAI(
@@ -15,80 +18,96 @@ client = OpenAI(
 )
 
 
-def run_all_agents(stock_code):
+def run_all_agents(context: MarketContext):
     """
     运行所有 Agent 并汇总结果
+
+    Args:
+        context: MarketContext 统一市场上下文
 
     Returns:
         dict: 所有 Agent 的分析结果
     """
-    from agents.market_agent import analyze_market, format_market_report
-    from agents.sentiment_agent import analyze_sentiment, format_sentiment_report
-    from agents.sector_agent import analyze_sector, format_sector_report
-    from agents.flow_agent import analyze_flow, format_flow_report
-    from agents.risk_agent import analyze_risk, format_risk_report
+    from agents.market_agent import MarketAgent
+    from agents.sentiment_agent import SentimentAgent
+    from agents.sector_agent import SectorAgent
+    from agents.flow_agent import FlowAgent
+    from agents.risk_agent import RiskAgent
 
-    market_data = analyze_market(stock_code)
-    sentiment_data = analyze_sentiment()
-    sector_data = analyze_sector(stock_code)
-    flow_data = analyze_flow()
-    risk_data = analyze_risk(sentiment_data, market_data)
+    # 使用统一的MarketContext调用各Agent
+    market_result = MarketAgent.analyze(context)
+    sentiment_result = SentimentAgent.analyze(context)
+    sector_result = SectorAgent.analyze(context)
+    flow_result = FlowAgent.analyze(context)
+    risk_result = RiskAgent.analyze(context)
 
     return {
-        "market": market_data,
-        "sentiment": sentiment_data,
-        "sector": sector_data,
-        "flow": flow_data,
-        "risk": risk_data,
+        "market": market_result,
+        "sentiment": sentiment_result,
+        "sector": sector_result,
+        "flow": flow_result,
+        "risk": risk_result,
         "format": {
-            "market": format_market_report(market_data),
-            "sentiment": format_sentiment_report(sentiment_data),
-            "sector": format_sector_report(sector_data),
-            "flow": format_flow_report(flow_data),
-            "risk": format_risk_report(risk_data)
+            "market": MarketAgent.format_report(market_result),
+            "sentiment": SentimentAgent.format_report(sentiment_result),
+            "sector": SectorAgent.format_report(sector_result),
+            "flow": FlowAgent.format_report(flow_result),
+            "risk": RiskAgent.format_report(risk_result)
         }
     }
 
 
-def generate_report(all_data):
+def generate_report(all_data, context: MarketContext):
     """
     使用 DeepSeek AI 生成最终分析报告
 
     Args:
         all_data: 所有 Agent 的分析结果
+        context: MarketContext 统一市场上下文
 
     Returns:
         str: AI 生成的最终报告
     """
-    market_data = all_data.get("market", {})
-    sentiment_data = all_data.get("sentiment", {})
-    sector_data = all_data.get("sector", {})
-    flow_data = all_data.get("flow", {})
-    risk_data = all_data.get("risk", {})
+    market_result = all_data.get("market", {})
+    sentiment_result = all_data.get("sentiment", {})
+    sector_result = all_data.get("sector", {})
+    flow_result = all_data.get("flow", {})
+    risk_result = all_data.get("risk", {})
 
     today = datetime.now()
     today_str = today.strftime("%Y年%m月%d日")
     weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][today.weekday()]
 
-    if 'error' not in market_data:
-        market_info = f"""股票名称：{market_data.get('stock_name', '未知')}
-股票代码：{market_data.get('stock_code', '未知')}
-最新价：{market_data.get('price', 0)}元
-涨跌幅：{market_data.get('price_change_pct', 0):.2f}%
-涨停状态：{market_data.get('limit_status', '正常')}
-换手率：{market_data.get('turnover_rate', 0):.2f}%
-量比：{market_data.get('volume_ratio', 0):.2f}
+    # 从context获取基本信息
+    stock_name = context.stock_name
+    stock_code = context.stock_code
+    stock_data = context.stock_data
+
+    market_info = f"""股票名称：{stock_name}
+股票代码：{stock_code}
+最新价：{stock_data.get('price', 0):.2f}元
+涨跌幅：{stock_data.get('change_pct', 0):.2f}%
+换手率：{stock_data.get('turnover', 0):.2f}%
+量比：{stock_data.get('volume_ratio', 0):.2f}
+振幅：{stock_data.get('amplitude', 0):.2f}%"""
+
+    # 从分析结果获取更详细信息
+    market_data = market_result.get("data", {})
+    market_info += f"""
 强势度：{market_data.get('strength_level', '未知')}
-异动信号：{', '.join(market_data.get('异动信号', [])) or '无'}"""
-    else:
-        market_info = "行情数据获取失败"
+异动信号：{', '.join(market_data.get('signals', [])) or '无'}"""
 
     stock_sectors_info = ""
-    stock_sectors = sector_data.get('stock_sectors', [])
+    stock_sectors = sector_result.get('data', {}).get('stock_sectors', [])
     if stock_sectors:
         stock_sectors_info = "个股所属板块：" + "、".join([f"{s['name']}(+{s['change_pct']}%)" for s in stock_sectors])
     else:
         stock_sectors_info = "个股所属板块：暂未获取"
+
+    sentiment_data = sentiment_result.get("data", {})
+    sector_data = sector_result.get("data", {})
+    flow_data = flow_result.get("data", {})
+    risk_data = risk_result.get("data", {})
 
     prompt = f"""你是A股顶级游资复盘分析师，擅长多维度市场分析。
 
@@ -105,13 +124,12 @@ def generate_report(all_data):
 情绪周期：{sentiment_data.get('emotion_cycle', '未知')}
 市场情绪：{sentiment_data.get('market_mood', '未知')}
 涨停家数：{sentiment_data.get('limit_up_count', 0)}家
-上涨家数：{sentiment_data.get('rising_count', 0)}家 ({sentiment_data.get('rise_ratio', 0):.1f}%)
-操作信号：{'可以做短线' if sentiment_data.get('做多信号') else '观望' if sentiment_data.get('做多信号') is False else '观察'}
+上涨比例：{sentiment_data.get('up_ratio', 0):.1f}%
+操作信号：{'可以做短线' if sentiment_data.get('long_signal') else '观望' if sentiment_data.get('long_signal') is False else '观察'}
 
 【市场主线方向】
 主线方向：{sector_data.get('main_line', '未知')}
-资金流向：{sector_data.get('资金流向', '未知')}
-第一强势板块：{sector_data.get('top_sectors', [{}])[0].get('name', '未知')} ({sector_data.get('top_sectors', [{}])[0].get('change_pct', 0)}%)
+资金流向：{sector_data.get('fund_flow', '未知')}
 
 【市场资金环境】
 市场流动性：{flow_data.get('liquidity', '未知')}
@@ -123,7 +141,14 @@ def generate_report(all_data):
 风险等级：{risk_data.get('risk_level', '未知')}
 风险提示：{risk_data.get('warning', '未知')}
 操作建议：{risk_data.get('suggestion', '未知')}
-短线可操作性：{'可以' if risk_data.get('可以做短线') else '谨慎' if risk_data.get('可以做短线') is False else '观察'}
+短线可操作性：{'可以' if risk_data.get('can_trade_short') else '谨慎' if risk_data.get('can_trade_short') is False else '观察'}
+
+【各Agent评分】
+行情评分：{market_result.get('score', 0)}/100 | 信号：{market_result.get('signal', '未知')}
+情绪评分：{sentiment_result.get('score', 0)}/100 | 信号：{sentiment_result.get('signal', '未知')}
+板块评分：{sector_result.get('score', 0)}/100 | 信号：{sector_result.get('signal', '未知')}
+资金评分：{flow_result.get('score', 0)}/100 | 信号：{flow_result.get('signal', '未知')}
+风险评分：{risk_result.get('score', 0)}/100 | 信号：{risk_result.get('signal', '未知')}
 
 【核心任务】
 请以【核心分析对象】的个股为绝对核心，结合上述市场背景信息，生成一份专业、简洁、针对该股的交易分析报告。
@@ -173,25 +198,33 @@ def multi_agent_review(stock_code):
             "summary": dict              # 快速摘要
         }
     """
-    all_data = run_all_agents(stock_code)
+    # 构建统一的MarketContext
+    context = DataProvider.build_context(stock_code)
 
-    final_report = generate_report(all_data)
+    # 运行所有Agent
+    all_data = run_all_agents(context)
 
-    sentiment = all_data.get("sentiment", {})
-    risk = all_data.get("risk", {})
+    # 生成最终报告
+    final_report = generate_report(all_data, context)
+
+    # 生成摘要
+    sentiment_data = all_data.get("sentiment", {}).get("data", {})
+    sector_data = all_data.get("sector", {}).get("data", {})
+    risk_data = all_data.get("risk", {}).get("data", {})
 
     summary = {
-        "股票": f"{all_data.get('market', {}).get('stock_name', '未知')}({stock_code})",
-        "情绪周期": sentiment.get("emotion_cycle", "未知"),
-        "市场情绪": sentiment.get("market_mood", "未知"),
-        "主线": all_data.get("sector", {}).get("main_line", "未知"),
-        "风险等级": risk.get("risk_level", "未知"),
-        "操作建议": risk.get("suggestion", "未知"),
-        "短线可做": "✅" if risk.get("可以做短线") else ("⚠️" if risk.get("可以做短线") is False else "➖")
+        "股票": f"{context.stock_name}({stock_code})",
+        "情绪周期": sentiment_data.get("emotion_cycle", "未知"),
+        "市场情绪": sentiment_data.get("market_mood", "未知"),
+        "主线": sector_data.get("main_line", "未知"),
+        "风险等级": risk_data.get("risk_level", "未知"),
+        "操作建议": risk_data.get("suggestion", "未知"),
+        "短线可做": "✅" if risk_data.get("can_trade_short") else ("⚠️" if risk_data.get("can_trade_short") is False else "➖")
     }
 
     return {
         "agent_results": all_data,
         "final_report": final_report,
-        "summary": summary
+        "summary": summary,
+        "context": context
     }

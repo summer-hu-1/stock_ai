@@ -6,11 +6,6 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(__file__))
 
 from agents.controller_agent import multi_agent_review
-from agents.market_agent import format_market_report
-from agents.sentiment_agent import format_sentiment_report
-from agents.sector_agent import format_sector_report
-from agents.flow_agent import format_flow_report
-from agents.risk_agent import format_risk_report
 from modules.storage import init_db, save_analysis, save_market_sentiment, get_all_companies, save_company_info, get_company_by_code
 from deepseek import stock_review, check_balance
 from modules.market_data import get_stock_data, get_stock_data_fast, test_api_connection, set_mock_data_mode
@@ -282,29 +277,28 @@ with tab2:
         else:
             progress_bar = st.progress(0, text="准备开始...")
 
-            progress_bar.progress(10, text="📈 步骤 1/6：正在获取个股数据...")
-            with st.spinner("📈 正在获取个股数据..."):
-                stock_data = get_stock_data(stock)
+            progress_bar.progress(20, text="📊 步骤 1/3：构建统一市场上下文...")
+            with st.spinner("🔄 正在构建MarketContext..."):
+                try:
+                    from core.data_provider import DataProvider
+                    context = DataProvider.build_context(stock)
+                    
+                    with st.expander("📈 个股行情数据", expanded=True):
+                        st.json(context.stock_data)
+                    with st.expander("📊 市场情绪数据", expanded=True):
+                        st.json(context.market_sentiment)
+                    with st.expander("🔥 热门板块数据", expanded=True):
+                        st.json(context.sectors)
+                    
+                    progress_bar.progress(50, text="✅ MarketContext构建完成")
+                    
+                except Exception as e:
+                    st.error(f"构建MarketContext失败: {str(e)}")
+                    progress_bar.progress(100, text="❌ 分析失败")
+                    st.stop()
 
-            progress_bar.progress(25, text="📊 步骤 2/6：正在获取市场情绪数据...")
-            with st.spinner("📊 正在获取市场情绪数据..."):
-                sentiment_data = get_market_sentiment()
-
-            progress_bar.progress(40, text="🔥 步骤 3/6：正在获取热门板块数据...")
-            with st.spinner("🔥 正在获取热门板块数据..."):
-                hot_sectors = get_hot_sectors()
-
-            if stock_data:
-                progress_bar.progress(50, text="✅ 数据获取完成")
-                with st.expander("📈 个股行情数据", expanded=True):
-                    st.json(stock_data)
-                with st.expander("📊 市场情绪数据", expanded=True):
-                    st.json(sentiment_data)
-                with st.expander("🔥 热门概念板块", expanded=True):
-                    st.json(hot_sectors)
-
-            progress_bar.progress(55, text="🤖 步骤 4/6：正在协调多个Agent进行市场分析...")
-            with st.spinner("🔄 正在协调多个Agent进行市场分析..."):
+            progress_bar.progress(60, text="🤖 步骤 2/3：多Agent协同分析...")
+            with st.spinner("🧠 各Agent正在分析中..."):
                 result = multi_agent_review(stock)
 
             progress_bar.progress(85, text="✅ Agent分析完成")
@@ -315,20 +309,19 @@ with tab2:
             st.session_state.agent_results = agent_results
             st.session_state.last_stock_code = stock
 
-            progress_bar.progress(90, text="💾 步骤 5/6：正在保存分析结果...")
-            if "error" not in agent_results.get("market", {}):
-                market_mood = agent_results.get("sentiment", {}).get("market_mood", "")
-                market_data = agent_results["market"]
-                market_data_for_save = {
-                    "code": market_data.get("stock_code"),
-                    "name": market_data.get("stock_name"),
-                    "price": market_data.get("price"),
-                    "price_change_pct": market_data.get("price_change_pct"),
-                    "volume": market_data.get("volume"),
-                    "turnover_rate": market_data.get("turnover_rate"),
-                    "amplitude": market_data.get("amplitude")
-                }
-                save_analysis(market_data_for_save, final_report, market_mood, "多Agent分析")
+            progress_bar.progress(90, text="💾 步骤 3/3：保存分析结果...")
+            market_mood = agent_results.get("sentiment", {}).get("data", {}).get("market_mood", "")
+            market_data = agent_results["market"]["data"]
+            market_data_for_save = {
+                "code": market_data.get("stock_code"),
+                "name": market_data.get("stock_name"),
+                "price": market_data.get("price"),
+                "price_change_pct": market_data.get("price_change_pct"),
+                "volume": market_data.get("volume"),
+                "turnover_rate": market_data.get("turnover_rate"),
+                "amplitude": market_data.get("amplitude")
+            }
+            save_analysis(market_data_for_save, final_report, market_mood, "多Agent分析")
 
             progress_bar.progress(100, text="✅ 分析完成！")
             st.balloons()
@@ -494,7 +487,7 @@ with tab4:
 with tab5:
     st.header("📅 市场情绪周期")
     from modules.storage import get_market_sentiment_history, save_market_sentiment, get_cached_market_sentiment
-    from agents.sentiment_agent import analyze_sentiment
+    from modules.market_sentiment import analyze_sentiment
 
     @st.cache_data(ttl=300)
     def cached_get_sentiment_history():

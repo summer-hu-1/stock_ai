@@ -213,6 +213,14 @@ def get_hot_sectors(use_cache=True):
             return cached
         return None
 
+def analyze_sentiment():
+    """
+    分析市场情绪（兼容旧API）
+    返回市场情绪数据字典
+    """
+    return get_market_sentiment()
+
+
 def format_market_sentiment(data, sector_data=None, hot_sectors=None):
     """
     格式化市场情绪数据为易读字符串

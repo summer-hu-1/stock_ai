@@ -2,143 +2,178 @@
 板块 Agent - Sector Agent
 负责板块热度分析和主线识别
 """
-import akshare as ak
-import pandas as pd
+
+from core.context import MarketContext
 
 
-def get_stock_sectors(stock_code):
+class SectorAgent:
     """
-    获取个股所属板块
-
-    Args:
-        stock_code: 股票代码
-
-    Returns:
-        list: 个股所属板块列表
+    板块分析Agent
+    从MarketContext读取数据，不直接访问AkShare
     """
-    try:
-        industry_df = ak.stock_board_industry_name_em()
-        stock_sectors = []
 
-        for _, row in industry_df.iterrows():
-            board_name = row["板块名称"]
-            try:
-                board_stocks = ak.stock_board_industry_cons_em(symbol=board_name)
-                if stock_code in board_stocks["代码"].values:
-                    stock_sectors.append({
-                        "name": board_name,
-                        "change_pct": round(row["涨跌幅"], 2),
-                        "turnover_rate": round(row["换手率"], 2) if pd.notna(row["换手率"]) else 0
-                    })
-                    if len(stock_sectors) >= 3:
-                        break
-            except:
-                continue
+    @staticmethod
+    def analyze(context: MarketContext):
+        """
+        分析板块热度
 
-        return stock_sectors
-    except Exception as e:
-        return []
+        Args:
+            context: MarketContext 统一市场上下文
 
+        Returns:
+            dict: {
+                "score": int,  # 0-100
+                "signal": str,  # 看多/看空/观望
+                "risk": str,  # 高/中/低
+                "reason": list,
+                "data": dict  # 详细数据
+            }
+        """
+        try:
+            sectors = context.sectors
 
-def analyze_sector(stock_code=None):
-    """
-    分析板块热度
+            # 按涨幅排序
+            sorted_sectors = sorted(sectors, key=lambda x: x.get("change_pct", 0), reverse=True)
+            top_sectors = sorted_sectors[:5]
+            hot_concepts = sorted_sectors[:10]
 
-    Args:
-        stock_code: 股票代码（可选，用于获取个股所属板块）
+            # 判断主线方向
+            main_line = top_sectors[0]["name"] if top_sectors else "未知"
 
-    Returns:
-        dict: {
-            "top_sectors": list,        # 涨幅前5板块
-            "hot_concepts": list,       # 热门概念
-            "main_line": str,           # 主线方向
-            "sector_count": int,        # 涨停板块数量
-            "资金流向": str,
-            "stock_sectors": list       # 个股所属板块
-        }
-    """
-    try:
-        industry_df = ak.stock_board_industry_name_em()
-        concept_df = ak.stock_board_concept_name_em()
-
-        top_industry = industry_df.nlargest(5, "涨跌幅")[["板块名称", "涨跌幅", "换手率", "上涨家数"]]
-        hot_concepts = concept_df.nlargest(10, "涨跌幅")[["板块名称", "涨跌幅", "换手率", "上涨家数"]]
-
-        top_sectors = []
-        for _, row in top_industry.iterrows():
-            top_sectors.append({
-                "name": row["板块名称"],
-                "change_pct": round(row["涨跌幅"], 2),
-                "turnover_rate": round(row["换手率"], 2) if pd.notna(row["换手率"]) else 0,
-                "rise_count": int(row["上涨家数"])
-            })
-
-        hot_concept_list = []
-        for _, row in hot_concepts.iterrows():
-            hot_concept_list.append({
-                "name": row["板块名称"],
-                "change_pct": round(row["涨跌幅"], 2),
-                "turnover_rate": round(row["换手率"], 2) if pd.notna(row["换手率"]) else 0,
-                "rise_count": int(row["上涨家数"])
-            })
-
-        main_line = top_sectors[0]["name"] if top_sectors else "未知"
-
-        if len(top_sectors) >= 3:
-            if any(s["change_pct"] > 5 for s in top_sectors[:3]):
-                资金流向 = "集中进攻主线"
-            elif all(s["change_pct"] > 2 for s in top_sectors[:3]):
-                资金流向 = "多点开花"
+            # 判断资金流向
+            if len(top_sectors) >= 3:
+                if any(s["change_pct"] > 5 for s in top_sectors[:3]):
+                    fund_flow = "集中进攻主线"
+                elif all(s["change_pct"] > 2 for s in top_sectors[:3]):
+                    fund_flow = "多点开花"
+                else:
+                    fund_flow = "轮动切换"
             else:
-                资金流向 = "轮动切换"
-        else:
-            资金流向 = "观望"
+                fund_flow = "观望"
 
-        stock_sectors = []
-        if stock_code:
-            stock_sectors = get_stock_sectors(stock_code)
+            # 计算评分
+            score = SectorAgent._calculate_score(top_sectors)
 
-        return {
-            "top_sectors": top_sectors,
-            "hot_concepts": hot_concept_list,
-            "main_line": main_line,
-            "sector_count": len(top_sectors),
-            "资金流向": 资金流向,
-            "stock_sectors": stock_sectors
-        }
+            # 判断信号
+            signal = "看多" if score >= 60 else ("看空" if score < 40 else "观望")
 
-    except Exception as e:
-        return {"error": str(e), "top_sectors": [], "hot_concepts": [], "main_line": "未知", "sector_count": 0, "资金流向": "未知", "stock_sectors": []}
+            # 判断风险
+            risk = "低" if len(top_sectors) >= 3 and top_sectors[0]["change_pct"] > 3 else "中"
 
+            # 生成理由
+            reasons = []
+            if top_sectors:
+                reasons.append(f"主线板块 {main_line} 涨幅 {top_sectors[0]['change_pct']:.2f}%")
+            if fund_flow == "集中进攻主线":
+                reasons.append("资金集中，主线明确")
+            elif fund_flow == "多点开花":
+                reasons.append("多个板块活跃，机会较多")
 
-def format_sector_report(sector_data):
-    """格式化板块报告"""
-    if "error" in sector_data:
-        return f"板块数据获取失败: {sector_data['error']}"
+            return {
+                "score": score,
+                "signal": signal,
+                "risk": risk,
+                "reason": reasons,
+                "data": {
+                    "top_sectors": top_sectors,
+                    "hot_concepts": hot_concepts,
+                    "main_line": main_line,
+                    "sector_count": len(top_sectors),
+                    "fund_flow": fund_flow,
+                    "stock_sectors": []  # 个股所属板块信息
+                }
+            }
 
-    lines = [
-        f"【板块分析】",
-        f"━━━━━━━━━━━━━━━━━━━━",
-        f"主线方向: {sector_data['main_line']}",
-        f"资金流向: {sector_data['资金流向']}",
-        f"━━━━━━━━━━━━━━━━━━━━",
-    ]
+        except Exception as e:
+            return {
+                "score": 0,
+                "signal": "未知",
+                "risk": "高",
+                "reason": [f"分析失败: {str(e)}"],
+                "data": {
+                    "top_sectors": [],
+                    "hot_concepts": [],
+                    "main_line": "未知",
+                    "sector_count": 0,
+                    "fund_flow": "未知",
+                    "stock_sectors": []
+                }
+            }
 
-    if sector_data.get("stock_sectors"):
-        lines.append(f"【个股所属板块】")
-        for i, sector in enumerate(sector_data["stock_sectors"], 1):
-            lines.append(f"{i}. {sector['name']}: +{sector['change_pct']}%")
+    @staticmethod
+    def _calculate_score(top_sectors: list) -> int:
+        """
+        计算板块评分
+        """
+        score = 50
+
+        if not top_sectors:
+            return 30
+
+        # 主线强度加分
+        first_change = top_sectors[0]["change_pct"]
+        if first_change > 5:
+            score += 20
+        elif first_change > 3:
+            score += 15
+        elif first_change > 2:
+            score += 10
+
+        # 板块扩散度加分
+        if len(top_sectors) >= 5:
+            avg_change = sum(s["change_pct"] for s in top_sectors[:5]) / 5
+            if avg_change > 3:
+                score += 15
+            elif avg_change > 2:
+                score += 10
+
+        # 资金流向判断
+        active_count = sum(1 for s in top_sectors if s["change_pct"] > 2)
+        if active_count >= 3:
+            score += 10
+        elif active_count >= 2:
+            score += 5
+
+        return max(0, min(100, score))
+
+    @staticmethod
+    def format_report(result):
+        """格式化板块报告"""
+        if not result.get("data"):
+            return f"板块分析失败: {result.get('reason', ['未知错误'])[0]}"
+
+        data = result["data"]
+
+        lines = [
+            f"🧭 【板块分析】",
+            f"━━━━━━━━━━━━━━━━━━━━",
+            f"主线方向: {data['main_line']}",
+            f"资金流向: {data['fund_flow']}",
+            f"━━━━━━━━━━━━━━━━━━━━",
+        ]
+
+        if data.get("stock_sectors"):
+            lines.append(f"【个股所属板块】")
+            for i, sector in enumerate(data["stock_sectors"], 1):
+                lines.append(f"{i}. {sector['name']}: +{sector['change_pct']}%")
+            lines.append(f"")
+
+        lines.append(f"【行业板块涨幅前5】")
+
+        for i, sector in enumerate(data["top_sectors"], 1):
+            lines.append(f"{i}. {sector['name']}: +{sector['change_pct']:.2f}% (换手{sector.get('turnover_rate', 0):.2f}%)")
+
         lines.append(f"")
+        lines.append(f"【热门概念板块TOP5】")
 
-    lines.append(f"【行业板块涨幅前5】")
+        for i, concept in enumerate(data["hot_concepts"][:5], 1):
+            lines.append(f"{i}. {concept['name']}: +{concept['change_pct']:.2f}%")
 
-    for i, sector in enumerate(sector_data["top_sectors"], 1):
-        lines.append(f"{i}. {sector['name']}: +{sector['change_pct']}% (换手{sector['turnover_rate']}%)")
+        lines.append(f"\n📈 综合评分: {result['score']}/100  |  信号: {result['signal']}  |  风险: {result['risk']}")
 
-    lines.append(f"")
-    lines.append(f"【热门概念板块TOP5】")
+        if result['reason']:
+            lines.append("\n💡 分析理由:")
+            for i, reason in enumerate(result['reason'], 1):
+                lines.append(f"  {i}. {reason}")
 
-    for i, concept in enumerate(sector_data["hot_concepts"][:5], 1):
-        lines.append(f"{i}. {concept['name']}: +{concept['change_pct']}% (换手{concept['turnover_rate']}%)")
-
-    return "\n".join(lines)
+        return "\n".join(lines)
