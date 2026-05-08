@@ -23,6 +23,7 @@ def init_db():
         amplitude REAL,
         market_mood TEXT,
         ai_summary TEXT,
+        mode TEXT,
         created_at TEXT
     )
     """)
@@ -66,7 +67,26 @@ def init_db():
     )
     """)
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS company_info (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        stock_code TEXT UNIQUE,
+        stock_name TEXT,
+        industry TEXT,
+        market_cap REAL,
+        updated_at TEXT
+    )
+    """)
+
     conn.commit()
+
+    cursor.execute("PRAGMA table_info(stock_analysis)")
+    columns = [col[1] for col in cursor.fetchall()]
+    if 'mode' not in columns:
+        cursor.execute("ALTER TABLE stock_analysis ADD COLUMN mode TEXT")
+        conn.commit()
+        print("✅ 已添加 mode 列到 stock_analysis 表")
+
     conn.close()
 
     cleanup_old_data_if_needed()
@@ -120,7 +140,7 @@ def cleanup_old_data_if_needed():
         conn.close()
 
 
-def save_analysis(stock_data, ai_result, market_mood=""):
+def save_analysis(stock_data, ai_result, market_mood="", mode=""):
     """保存个股分析记录"""
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -137,8 +157,9 @@ def save_analysis(stock_data, ai_result, market_mood=""):
             amplitude,
             market_mood,
             ai_summary,
+            mode,
             created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             stock_data["code"],
             stock_data["name"],
@@ -149,6 +170,7 @@ def save_analysis(stock_data, ai_result, market_mood=""):
             stock_data["amplitude"],
             market_mood,
             ai_result,
+            mode,
             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ))
 
@@ -318,7 +340,7 @@ def get_stock_history(stock_code, limit=20):
 
     cursor.execute("""
     SELECT id, stock_code, stock_name, price, change_pct, volume, turnover, 
-           amplitude, market_mood, ai_summary, created_at
+           amplitude, market_mood, ai_summary, mode, created_at
     FROM stock_analysis
     WHERE stock_code = ?
     ORDER BY created_at DESC
@@ -341,7 +363,8 @@ def get_stock_history(stock_code, limit=20):
             "amplitude": row[7],
             "market_mood": row[8],
             "ai_summary": row[9],
-            "created_at": row[10]
+            "mode": row[10],
+            "created_at": row[11]
         })
 
     return result
@@ -420,3 +443,64 @@ def format_history_for_display(history):
         })
 
     return formatted
+
+
+def get_all_companies():
+    """获取所有公司信息"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT stock_code, stock_name, industry
+    FROM company_info
+    ORDER BY stock_code
+    """)
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    return [{"code": row[0], "name": row[1], "industry": row[2]} for row in rows]
+
+
+def save_company_info(companies):
+    """批量保存公司信息"""
+    if not companies:
+        return False
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    for company in companies:
+        cursor.execute("""
+        INSERT OR REPLACE INTO company_info (stock_code, stock_name, industry, updated_at)
+        VALUES (?, ?, ?, ?)
+        """, (
+            company.get("code", ""),
+            company.get("name", ""),
+            company.get("industry", ""),
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ))
+
+    conn.commit()
+    conn.close()
+    print(f"✅ 已保存 {len(companies)} 条公司信息")
+    return True
+
+
+def get_company_by_code(stock_code):
+    """根据代码获取公司信息"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("""
+    SELECT stock_code, stock_name
+    FROM company_info
+    WHERE stock_code = ?
+    """, (stock_code,))
+
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+        return {"code": row[0], "name": row[1]}
+    return None

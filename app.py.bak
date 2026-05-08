@@ -58,53 +58,43 @@ with tab1:
     st.header("⚡ 单Prompt分析（快速）")
 
     companies = get_company_list()
-    if not companies:
-        companies = []
+    if companies is None:
+        with st.spinner("📊 首次加载，正在获取公司列表..."):
+            load_company_data()
+            companies = get_company_list()
 
-    if st.button("🔄 刷新公司数据", key="refresh_companies", help="点击从akshare全量加载公司数据"):
-        load_company_data()
-        st.rerun()
+    stock_options = [""] + [f"{c['name']} ({c['code']})" for c in companies]
+    stock_code_map = {f"{c['name']} ({c['code']})": c['code'] for c in companies}
 
-    st.caption(f"📊 数据库中已有 {len(companies)} 家公司数据 | 支持输入名称或代码搜索")
-
-    search_input = st.text_input(
-        "输入股票名称或代码",
-        placeholder="例如：贵州茅台、600519 或 茅台",
-        key="stock_input"
-    )
-
-    filtered_companies = companies
-    if search_input:
-        query_lower = search_input.lower()
-        filtered_companies = [
-            c for c in companies
-            if query_lower in c['name'].lower() or query_lower in c['code']
-        ]
-
-    stock_options = [""] + [f"{c['name']}({c['code']})" for c in filtered_companies]
-    stock_code_map = {f"{c['name']}({c['code']})": c['code'] for c in filtered_companies}
-    stock_name_map = {f"{c['name']}({c['code']})": c['name'] for c in filtered_companies}
-
-    if filtered_companies and search_input:
-        selected_option = st.selectbox(
-            "匹配结果",
-            options=stock_options,
-            index=0,
-            format_func=lambda x: x if x else "未找到匹配结果",
-            key="stock_select",
-            help="从匹配结果中选择"
-        )
-        if selected_option:
-            stock = stock_code_map[selected_option]
-            stock_name = stock_name_map[selected_option]
+    col1, col2, col3, col4 = st.columns([3, 1, 1, 2])
+    with col1:
+        if companies:
+            selected_stock = st.selectbox(
+                "选择或输入股票代码",
+                options=stock_options,
+                index=0,
+                format_func=lambda x: x if x else "输入/选择股票...",
+                key="stock_select"
+            )
+            stock = stock_code_map.get(selected_stock, selected_stock if selected_stock else "")
+            stock_input = st.text_input(
+                "或直接输入股票代码（如 601360）",
+                value=stock,
+                placeholder="601360",
+                key="stock_single"
+            )
+            if stock_input:
+                stock = stock_input
         else:
-            stock = search_input
-            stock_name = ""
-    else:
-        stock = search_input
-        stock_name = ""
+            stock = st.text_input("输入股票代码（如 601360）", placeholder="601360", key="stock_single")
 
-
+    col_info, col_btn = st.columns([3, 1])
+    with col_info:
+        st.caption(f"📊 已加载 {len(companies) if companies else 0} 家公司")
+    with col_btn:
+        if st.button("🔄 更新公司列表", key="refresh_companies", help="点击更新公司列表"):
+            load_company_data()
+            st.rerun()
 
     col1, col2, col3, col4 = st.columns([3, 1, 1, 2])
     with col1:
