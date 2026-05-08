@@ -61,48 +61,32 @@ with tab1:
     if not companies:
         companies = []
 
-    if st.button("🔄 刷新公司数据", key="refresh_companies", help="点击从akshare全量加载公司数据"):
-        load_company_data()
-        st.rerun()
+    col_btn, col_info = st.columns([1, 4])
+    with col_btn:
+        if st.button("🔄 刷新数据", key="refresh_companies", help="点击从akshare全量加载公司数据"):
+            load_company_data()
+            st.rerun()
+    with col_info:
+        st.caption(f"📊 已加载 {len(companies)} 家公司 | 输入名称或代码搜索，选择或直接输入")
 
-    st.caption(f"📊 数据库中已有 {len(companies)} 家公司数据 | 支持输入名称或代码搜索")
+    stock_display_options = [f"{c['name']}({c['code']})" for c in companies]
+    stock_code_map = {f"{c['name']}({c['code']})": c['code'] for c in companies}
+    stock_name_map = {f"{c['name']}({c['code']})": c['name'] for c in companies}
 
-    search_input = st.text_input(
-        "输入股票名称或代码",
-        placeholder="例如：贵州茅台、600519 或 茅台",
-        key="stock_input"
+    selected = st.selectbox(
+        "输入股票名称或代码，如：贵州茅台、600519",
+        options=[""] + stock_display_options,
+        key="stock_autocomplete",
+        format_func=lambda x: x if x else "请选择股票..."
     )
 
-    filtered_companies = companies
-    if search_input:
-        query_lower = search_input.lower()
-        filtered_companies = [
-            c for c in companies
-            if query_lower in c['name'].lower() or query_lower in c['code']
-        ]
-
-    stock_options = [""] + [f"{c['name']}({c['code']})" for c in filtered_companies]
-    stock_code_map = {f"{c['name']}({c['code']})": c['code'] for c in filtered_companies}
-    stock_name_map = {f"{c['name']}({c['code']})": c['name'] for c in filtered_companies}
-
-    if filtered_companies and search_input:
-        selected_option = st.selectbox(
-            "匹配结果",
-            options=stock_options,
-            index=0,
-            format_func=lambda x: x if x else "未找到匹配结果",
-            key="stock_select",
-            help="从匹配结果中选择"
-        )
-        if selected_option:
-            stock = stock_code_map[selected_option]
-            stock_name = stock_name_map[selected_option]
-        else:
-            stock = search_input
-            stock_name = ""
+    if selected:
+        stock = stock_code_map.get(selected, selected)
+        stock_name = stock_name_map.get(selected, "")
     else:
-        stock = search_input
+        stock = ""
         stock_name = ""
+
 
 
 
