@@ -1,0 +1,31 @@
+# 本地股票日线数据（不提交到仓库）
+data/cn/daily/
+data/cn/stock_list.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Streamlit
+.streamlit/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 数据库（保留结构，忽略数据）
+data/*.db
+!data/.gitkeep

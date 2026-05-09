@@ -85,7 +85,7 @@ with col_mock:
     else:
         set_mock_data_mode(False)
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠 多Agent分析（完整）", "📊 各Agent详情", "📈 历史记录", "📅 情绪周期"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠 多Agent分析（完整）", "📊 各Agent详情", "📈 历史记录", "📅 情绪周期", "📊 历史日线"])
 
 with tab1:
     st.header("⚡ 单Prompt分析（快速）")
@@ -163,7 +163,37 @@ with tab1:
                         st.success(f"✅ 已成功获取并保存 {len(popular_stocks)} 家{market_name}公司数据！")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"❌ 获取数据失败: {str(e)}")
+                    # 检查是否是代理错误或网络问题
+                    error_str = str(e)
+                    if "ProxyError" in error_str or "Unable to connect to proxy" in error_str:
+                        st.warning("⚠️ 网络代理连接失败")
+                        st.info("""
+                        **建议排查：**
+                        - 检查网络代理设置是否正确
+                        - 尝试关闭代理后重试
+                        - 如果在公司网络，请联系IT部门
+                        - 可使用模拟数据模式继续使用系统
+                        """)
+                    elif "Max retries exceeded" in error_str or "Connection refused" in error_str:
+                        st.warning("⚠️ 网络连接超时")
+                        st.info("""
+                        **建议排查：**
+                        - 检查网络连接是否正常
+                        - 稍后重试
+                        - 可使用模拟数据模式继续使用系统
+                        """)
+                    elif "Too Many Requests" in error_str or "Rate limited" in error_str:
+                        st.warning("⚠️ 请求过于频繁，请稍后重试")
+                        st.info("""
+                        **建议：**
+                        - 等待几分钟后再尝试
+                        - 可使用缓存数据继续分析
+                        """)
+                    else:
+                        st.warning("⚠️ 获取数据失败")
+                        st.info(f"**错误原因：** {str(e)[:100]}...")
+                    
+                    st.info("💡 当前将继续使用已缓存的股票数据")
 
     # 公司搜索选择组件（只有一个下拉框）
     service = DataService(market_name)
@@ -591,6 +621,26 @@ with tab5:
     else:
         with st.spinner("📊 获取市场情绪数据..."):
             sentiment = analyze_sentiment()
+    
+    # 处理 sentiment 为 None 的情况（网络问题导致）
+    if sentiment is None:
+        st.warning("⚠️ 无法获取市场情绪数据，使用模拟数据")
+        sentiment = {
+            "limit_up_count": 0,
+            "limit_down_count": 0,
+            "bomb_rate": 0,
+            "avg_change": 0,
+            "market_mood": "未知",
+            "rising_count": 0,
+            "falling_count": 0,
+            "flat_count": 0,
+            "total_count": 0,
+            "rise_ratio": 0,
+            "strong_count": 0,
+            "weak_count": 0,
+            "total_volume": 0,
+            "market_cap": 0
+        }
 
     st.subheader("📊 当前市场情绪")
 
@@ -632,3 +682,150 @@ with tab5:
                 with cols[2]:
                     st.metric("强势股", record['strong_count'])
                     st.metric("弱势股", record['weak_count'])
+
+
+with tab6:
+    st.header("📊 A股历史日线数据")
+    
+    from core.csv_provider import get_csv_provider
+    import pandas as pd
+    
+    csv_provider = get_csv_provider()
+    data_status = csv_provider.get_data_status()
+    
+    col_info1, col_info2, col_info3 = st.columns(3)
+    with col_info1:
+        st.metric("本地股票数", data_status.get('total_stocks', 0))
+    with col_info2:
+        st.metric("最新更新", data_status.get('latest_update', 'N/A'))
+    with col_info3:
+        st.metric("数据目录", "data/cn/daily")
+    
+    st.divider()
+    
+    # 数据同步区域
+    st.subheader("🔄 数据同步")
+    
+    sync_col1, sync_col2, sync_col3 = st.columns([2, 1, 1])
+    
+    with sync_col1:
+        sync_mode = st.radio(
+            "同步模式",
+            ["🔍 单只股票", "📋 批量同步"],
+            horizontal=True,
+            label_visibility="collapsed",
+            key="sync_mode_radio"
+        )
+    
+    with sync_col2:
+        target_stock = st.text_input(
+            "股票代码",
+            placeholder="000002",
+            key="sync_stock_code"
+        )
+    
+    with sync_col3:
+        st.write("")
+        st.write("")
+        if st.button("🚀 开始同步", type="primary", key="start_sync_btn"):
+            if sync_mode == "🔍 单只股票" and not target_stock:
+                st.warning("⚠️ 请输入股票代码")
+            else:
+                with st.spinner("正在同步数据..."):
+                    try:
+                        import os
+                        import sys
+                        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+                        
+                        from data_sync.sync_cn_daily import sync_stock
+                        from data_sync.get_stock_list import main as get_stock_list_main
+                        
+                        # 确保股票列表存在
+                        stock_list_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "cn", "stock_list.csv")
+                        if not os.path.exists(stock_list_path):
+                            get_stock_list_main()
+                        
+                        if sync_mode == "🔍 单只股票":
+                            code = str(target_stock).zfill(6)
+                            ok = sync_stock(code)
+                            if ok:
+                                st.success(f"✅ 股票 {code} 同步成功！")
+                            else:
+                                st.error(f"❌ 股票 {code} 同步失败（可能网络问题）")
+                        else:
+                            # 批量同步（只同步前100只作为演示）
+                            stock_df = pd.read_csv(stock_list_path)
+                            success_count = 0
+                            for code in stock_df["code"].head(100):
+                                code = str(code).zfill(6)
+                                if sync_stock(code):
+                                    success_count += 1
+                            st.success(f"✅ 批量同步完成: {success_count}/100 只股票")
+                        
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ 同步失败: {str(e)[:100]}")
+    
+    st.divider()
+    
+    # 查看数据区域
+    st.subheader("📈 查看数据")
+    
+    col_stock, col_days = st.columns([2, 1])
+    
+    with col_stock:
+        stock_code = st.text_input(
+            "📈 输入股票代码",
+            placeholder="如: 000002 (万科A) 或 600519 (贵州茅台)",
+            key="daily_stock_code"
+        )
+    
+    with col_days:
+        days = st.selectbox(
+            "📅 显示天数",
+            [30, 60, 90, 180, 365],
+            index=0,
+            key="daily_days"
+        )
+    
+    if stock_code:
+        stock_code = str(stock_code).zfill(6)
+        
+        df = csv_provider.get_recent_data(stock_code, days)
+        
+        if df is not None and not df.empty:
+            latest = df.iloc[-1]
+            earliest = df.iloc[0] if len(df) > 1 else latest
+            
+            col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+            with col_stat1:
+                st.metric("最新收盘", f"{latest['close']:.2f}")
+            with col_stat2:
+                change = latest['close'] - earliest['close']
+                pct = (change / earliest['close'] * 100) if earliest['close'] > 0 else 0
+                st.metric(f"区间涨跌({days}日)", f"{pct:+.2f}%")
+            with col_stat3:
+                st.metric("最高价", f"{df['high'].max():.2f}")
+            with col_stat4:
+                st.metric("最低价", f"{df['low'].min():.2f}")
+            
+            st.dataframe(
+                df.sort_values('date', ascending=False),
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            st.download_button(
+                label="📥 下载CSV",
+                data=df.to_csv(index=False),
+                file_name=f"{stock_code}_daily.csv",
+                mime="text/csv"
+            )
+        else:
+            st.warning(f"⚠️ 股票 {stock_code} 本地数据不存在，请先点击上方「开始同步」按钮获取数据")
+    else:
+        available_stocks = csv_provider.get_stock_list()[:20]
+        if available_stocks:
+            st.info(f"📋 本地已有 {data_status.get('total_stocks', 0)} 只股票数据，可直接输入股票代码查看")
+        else:
+            st.info("💡 请先在上方输入股票代码并点击「开始同步」获取数据")
