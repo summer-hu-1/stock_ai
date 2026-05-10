@@ -170,39 +170,87 @@ class SymbolResolver:
         conn.commit()
         conn.close()
 
-    def bulk_add_stocks(self, stocks: List[Dict]):
+    def bulk_add_stocks(self, stocks: List[Dict], incremental=True):
         """
-        批量添加股票
-        
+        批量添加股票，支持增量更新
+
         Args:
             stocks: 股票列表，每个元素包含 code, name
+            incremental: True=增量更新（只添加新股票），False=全量替换
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        for stock in stocks:
-            cursor.execute("""
-                INSERT OR REPLACE INTO stocks (code, name, name_en, market, sector, industry)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                stock["code"],
-                stock.get("name", ""),
-                stock.get("name_en"),
-                self.market_config["code"],
-                stock.get("sector"),
-                stock.get("industry")
-            ))
-        
-        conn.commit()
-        conn.close()
+        if not stocks:
+            return 0
 
-    def get_all_stocks(self) -> List[Dict]:
-        """获取所有股票，按代码排序"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        
+
+        if incremental:
+            # 增量更新：只插入不存在的股票
+            added_count = 0
+            for stock in stocks:
+                # 检查股票是否已存在
+                cursor.execute("SELECT code FROM stocks WHERE code = ?", (stock["code"],))
+                exists = cursor.fetchone()
+
+                if not exists:
+                    cursor.execute("""
+                        INSERT INTO stocks (code, name, name_en, market, sector, industry)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (
+                        stock["code"],
+                        stock.get("name", ""),
+                        stock.get("name_en"),
+                        self.market_config["code"],
+                        stock.get("sector"),
+                        stock.get("industry")
+                    ))
+                    added_count += 1
+
+            conn.commit()
+            conn.close()
+
+            # 清除缓存
+            if hasattr(self, '_stocks_cache'):
+                del self._stocks_cache
+
+            return added_count
+        else:
+            # 全量替换：删除旧数据，插入新数据
+            cursor.execute("DELETE FROM stocks WHERE market = ?", (self.market_config["code"],))
+
+            for stock in stocks:
+                cursor.execute("""
+                    INSERT INTO stocks (code, name, name_en, market, sector, industry)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    stock["code"],
+                    stock.get("name", ""),
+                    stock.get("name_en"),
+                    self.market_config["code"],
+                    stock.get("sector"),
+                    stock.get("industry")
+                ))
+
+            conn.commit()
+            conn.close()
+
+            # 清除缓存
+            if hasattr(self, '_stocks_cache'):
+                del self._stocks_cache
+
+            return len(stocks)
+
+    def get_all_stocks(self, use_cache=True) -> List[Dict]:
+        """获取所有股票，按代码排序，优先使用本地缓存"""
+        # 如果启用缓存且已有数据，直接返回
+        if use_cache and hasattr(self, '_stocks_cache') and self._stocks_cache:
+            return self._stocks_cache
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
         cursor.execute("SELECT code, name, sector FROM stocks ORDER BY code")
-        
+
         results = []
         for row in cursor.fetchall():
             results.append({
@@ -210,6 +258,88 @@ class SymbolResolver:
                 "name": row[1],
                 "sector": row[2]
             })
-        
+
+        conn.close()
+
+        # 缓存结果
+        self._stocks_cache = results
+        return results
+
+    def get_stock_count(self) -> int:
+        """获取本地数据库中的股票数量"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM stocks")
+        count = cursor.fetchone()[0]
+        conn.close()
+        return count
+
+    def search_stocks(self, keyword: str, limit: int = 20) -> List[Dict]:
+        """搜索股票（支持中文名称、代码）"""
+        if not keyword:
+            return self.get_all_stocks()[:limit]
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        # 清理关键词，只保留数字、字母和中文
+        import re
+        clean_keyword = re.sub(r'[^0-9A-Za-z\u4e00-\u9fff]', '', keyword)
+
+        # 优先精确匹配代码
+        cursor.execute("""
+            SELECT code, name, sector FROM stocks
+            WHERE code = ?
+            LIMIT 1
+        """, (clean_keyword,))
+        exact_match = cursor.fetchone()
+        if exact_match:
+            conn.close()
+            return [{
+                "code": exact_match[0],
+                "name": exact_match[1],
+                "sector": exact_match[2]
+            }]
+
+        # 模糊搜索 - 处理中文名称中的特殊字符
+        # 将关键词分割成单个中文字符
+        chinese_chars = [c for c in clean_keyword if re.search(r'[\u4e00-\u9fff]', c)]
+
+        # 构建搜索条件：代码匹配 或 名称包含所有中文字符
+        code_pattern = f'%{clean_keyword}%'
+
+        if chinese_chars:
+            name_conditions = ' OR '.join([f"name LIKE ?" for _ in chinese_chars])
+            name_patterns = [f'%{c}%' for c in chinese_chars]
+            cursor.execute(f"""
+                SELECT code, name, sector FROM stocks
+                WHERE code LIKE ? OR ({name_conditions})
+                ORDER BY
+                    CASE WHEN code = ? THEN 0
+                         WHEN code LIKE ? THEN 1
+                         ELSE 2 END,
+                    code
+                LIMIT ?
+            """, (code_pattern,) + tuple(name_patterns) + (clean_keyword, clean_keyword+'%', limit))
+        else:
+            cursor.execute("""
+                SELECT code, name, sector FROM stocks
+                WHERE code LIKE ?
+                ORDER BY
+                    CASE WHEN code = ? THEN 0
+                         WHEN code LIKE ? THEN 1
+                         ELSE 2 END,
+                    code
+                LIMIT ?
+            """, (code_pattern, clean_keyword, clean_keyword+'%', limit))
+
+        results = []
+        for row in cursor.fetchall():
+            results.append({
+                "code": row[0],
+                "name": row[1],
+                "sector": row[2]
+            })
+
         conn.close()
         return results

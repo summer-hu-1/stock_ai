@@ -1,6 +1,7 @@
 import streamlit as st
 import sys
 import os
+import pandas as pd
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -109,14 +110,78 @@ with tab1:
                 try:
                     if market_name == "A股":
                         import akshare as ak
-                        df = ak.stock_zh_a_spot_em()
+                        try:
+                            # 禁用代理
+                            import os
+                            os.environ['HTTP_PROXY'] = ''
+                            os.environ['HTTPS_PROXY'] = ''
+                            os.environ['http_proxy'] = ''
+                            os.environ['https_proxy'] = ''
+
+                            df = ak.stock_zh_a_spot_em()
+                        except Exception as e:
+                            # akshare失败，尝试使用雪球API
+                            st.info("📡 akshare不可用，尝试使用雪球API...")
+                            import requests
+                            session = requests.Session()
+                            session.trust_env = False
+                            session.proxies = {}
+
+                            # 从雪球获取股票列表
+                            all_stocks_xueqiu = []
+                            for page in range(1, 20):  # 最多20页
+                                try:
+                                    url = "https://stock.xueqiu.com/v5/stock/screener/quote/list.json"
+                                    headers = {
+                                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                                        'Referer': 'https://xueqiu.com'
+                                    }
+                                    params = {
+                                        'page': page,
+                                        'size': 100,
+                                        'order': 'desc',
+                                        'orderby': 'percent',
+                                        'market': 'CN',
+                                        'type': 'sh_sz'
+                                    }
+
+                                    r = session.get(url, headers=headers, params=params, timeout=10)
+                                    if r.status_code != 200:
+                                        break
+
+                                    data = r.json()
+                                    stocks_list = data.get('data', {}).get('list', [])
+                                    if not stocks_list:
+                                        break
+
+                                    for stock in stocks_list:
+                                        symbol = stock.get('symbol', '')
+                                        code = symbol.replace('SH', '').replace('SZ', '')
+                                        all_stocks_xueqiu.append({
+                                            'code': code,
+                                            'name': stock.get('name', ''),
+                                            'sector': ''
+                                        })
+
+                                    total = data.get('data', {}).get('count', 0)
+                                    if page * 100 >= total:
+                                        break
+                                except Exception as e:
+                                    st.warning(f"⚠️ 雪球API第{page}页获取失败: {str(e)[:50]}")
+                                    break
+
+                            if all_stocks_xueqiu:
+                                df = pd.DataFrame(all_stocks_xueqiu)
+                            else:
+                                st.info("📡 雪球API未返回有效数据")
+
                         if df is not None and not df.empty:
                             stocks = []
                             for _, row in df.iterrows():
                                 stocks.append({
-                                    "code": str(row.get("代码", "")),
-                                    "name": str(row.get("名称", "")),
-                                    "sector": str(row.get("行业", "")) if "行业" in df.columns else ""
+                                    "code": str(row.get("代码", row.get("code", ""))),
+                                    "name": str(row.get("名称", row.get("name", ""))),
+                                    "sector": str(row.get("行业", row.get("sector", ""))) if "行业" in str(row.keys()) else ""
                                 })
                             from core.symbol_resolver import SymbolResolver
                             from core.market_registry import get_market_config
@@ -127,22 +192,107 @@ with tab1:
                             st.error("❌ 获取数据失败")
                     elif market_name == "港股":
                         import akshare as ak
-                        df = ak.stock_hk_spot_em()
+                        try:
+                            # 禁用代理
+                            import os
+                            os.environ['HTTP_PROXY'] = ''
+                            os.environ['HTTPS_PROXY'] = ''
+                            os.environ['http_proxy'] = ''
+                            os.environ['https_proxy'] = ''
+
+                            df = ak.stock_hk_spot_em()
+                        except Exception as e:
+                            # akshare失败，尝试使用雪球API
+                            st.info("📡 akshare不可用，尝试使用雪球API...")
+                            import requests
+                            session = requests.Session()
+                            session.trust_env = False
+                            session.proxies = {}
+
+                            # 从雪球获取港股列表
+                            all_stocks_xueqiu = []
+                            for page in range(1, 20):  # 最多20页
+                                try:
+                                    url = "https://stock.xueqiu.com/v5/stock/screener/quote/list.json"
+                                    headers = {
+                                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                                        'Referer': 'https://xueqiu.com'
+                                    }
+                                    params = {
+                                        'page': page,
+                                        'size': 100,
+                                        'order': 'desc',
+                                        'orderby': 'percent',
+                                        'market': 'HK',
+                                        'type': 'hk'
+                                    }
+
+                                    r = session.get(url, headers=headers, params=params, timeout=10)
+                                    if r.status_code != 200:
+                                        break
+
+                                    data = r.json()
+                                    stocks_list = data.get('data', {}).get('list', [])
+                                    if not stocks_list:
+                                        break
+
+                                    for stock in stocks_list:
+                                        symbol = stock.get('symbol', '')
+                                        code = symbol.replace('HK', '')
+                                        all_stocks_xueqiu.append({
+                                            'code': code,
+                                            'name': stock.get('name', ''),
+                                            'sector': ''
+                                        })
+
+                                    total = data.get('data', {}).get('count', 0)
+                                    if page * 100 >= total:
+                                        break
+                                except:
+                                    break
+
+                            if all_stocks_xueqiu:
+                                df = pd.DataFrame(all_stocks_xueqiu)
+                            else:
+                                df = None
+
                         if df is not None and not df.empty:
                             stocks = []
                             for _, row in df.iterrows():
                                 stocks.append({
-                                    "code": str(row.get("代码", "")),
-                                    "name": str(row.get("名称", "")),
+                                    "code": str(row.get("代码", row.get("code", ""))),
+                                    "name": str(row.get("名称", row.get("name", ""))),
                                     "sector": ""
                                 })
                             from core.symbol_resolver import SymbolResolver
                             from core.market_registry import get_market_config
                             resolver = SymbolResolver(get_market_config(market_name))
-                            resolver.bulk_add_stocks(stocks)
-                            st.success(f"✅ 已成功获取并保存 {len(stocks)} 家{market_name}公司数据！")
+
+                            # 先显示本地已有数量
+                            local_count = resolver.get_stock_count()
+                            st.info(f"📊 本地已存在 {local_count} 只股票")
+
+                            # 增量更新
+                            added_count = resolver.bulk_add_stocks(stocks, incremental=True)
+
+                            if added_count > 0:
+                                st.success(f"✅ 增量更新成功！新增 {added_count} 只股票，本地共 {local_count + added_count} 只")
+                            else:
+                                st.success(f"✅ 已是最新数据！本地共 {local_count} 只股票，无需更新")
                         else:
-                            st.error("❌ 获取数据失败")
+                            # API获取失败，使用本地数据
+                            from core.symbol_resolver import SymbolResolver
+                            from core.market_registry import get_market_config
+                            resolver = SymbolResolver(get_market_config(market_name))
+                            local_count = resolver.get_stock_count()
+
+                            if local_count > 0:
+                                st.info(f"📡 无法从网络获取数据，将使用本地缓存的 {local_count} 只股票")
+                            else:
+                                st.error("❌ 无法获取股票列表，且本地无缓存数据")
+                                st.info("💡 建议：")
+                                st.info("1. 检查网络连接")
+                                st.info("2. 可以使用命令行工具: `python data_sync/update_stock_list.py`")
                     elif market_name == "美股":
                         popular_stocks = [
                             {"code": "AAPL", "name": "苹果", "name_en": "Apple"},
@@ -174,26 +324,20 @@ with tab1:
                         - 如果在公司网络，请联系IT部门
                         - 可使用模拟数据模式继续使用系统
                         """)
-                    elif "Max retries exceeded" in error_str or "Connection refused" in error_str:
-                        st.warning("⚠️ 网络连接超时")
-                        st.info("""
-                        **建议排查：**
-                        - 检查网络连接是否正常
-                        - 稍后重试
-                        - 可使用模拟数据模式继续使用系统
-                        """)
+                    elif "Max retries exceeded" in error_str or "Connection refused" in error_str or "Connection aborted" in error_str or "RemoteDisconnected" in error_str:
+                        st.warning("⚠️ 网络连接失败，尝试使用备用数据源...")
+                        st.info("💡 建议：可使用命令行工具 `python data_sync/update_stock_list.py` 手动刷新股票列表")
                     elif "Too Many Requests" in error_str or "Rate limited" in error_str:
                         st.warning("⚠️ 请求过于频繁，请稍后重试")
                         st.info("""
                         **建议：**
                         - 等待几分钟后再尝试
-                        - 可使用缓存数据继续分析
+                        - 可使用模拟数据模式继续使用系统
                         """)
                     else:
                         st.warning("⚠️ 获取数据失败")
                         st.info(f"**错误原因：** {str(e)[:100]}...")
-                    
-                    st.info("💡 当前将继续使用已缓存的股票数据")
+                        st.info("💡 建议使用命令行工具: `python data_sync/update_stock_list.py`")
 
     # 公司搜索选择组件（只有一个下拉框）
     service = DataService(market_name)
