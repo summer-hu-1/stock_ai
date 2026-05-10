@@ -167,6 +167,14 @@ stock_ai/
 │   ├── sync_cn_daily.py        # 同步3年日线数据
 │   └── update_cn_daily.py      # 增量更新日线数据
 │
+├── validation/                  # 系统有效性验证（已完成）
+│   ├── __init__.py
+│   ├── backtester.py           # 回测框架
+│   ├── signal_validator.py     # 信号验证
+│   ├── factor_analyzer.py      # 因子分析
+│   ├── simulator.py            # 模拟交易
+│   └── validation_engine.py    # 验证引擎
+│
 ├── agents/                     # 多Agent系统
 │   ├── __init__.py
 │   ├── market_agent.py         # 行情Agent
