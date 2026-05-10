@@ -436,8 +436,7 @@ def get_stock_data(stock_code, use_cache=True):
 
 def get_stock_data_fast(stock_code, use_cache=True, target_date=None):
     """
-    极速模式获取A股行情数据 - 使用历史数据API，速度更快
-    注意：此函数获取的是指定日期或最近可用交易日的收盘数据，非实时数据
+    极速模式获取A股行情数据 - 优先使用本地CSV数据，支持历史日期
     
     Args:
         target_date: 目标日期，datetime对象或字符串(YYYY-MM-DD/YYYYMMDD)，None为最近交易日
@@ -466,8 +465,65 @@ def get_stock_data_fast(stock_code, use_cache=True, target_date=None):
             print(f"📦 使用缓存的极速股票数据: {stock_code} @ {date_str}")
             return _stock_data_cache[cache_key]
 
+    # 优先使用本地CSV数据
     try:
-        print(f"正在极速获取股票数据: {stock_code}")
+        print(f"📂 尝试从本地CSV获取数据: {stock_code}")
+        from core.csv_provider import CSVProvider
+        
+        csv_provider = CSVProvider()
+        csv_df = csv_provider.get_stock_daily(stock_code)
+        
+        if csv_df is not None and not csv_df.empty:
+            print(f"✅ 本地CSV数据可用")
+            
+            # 根据target_date筛选数据
+            if target_date is not None:
+                target_date_str = date_str
+                # CSV中的日期格式是YYYY-MM-DD，需要转换
+                csv_df['date_str'] = csv_df['date'].dt.strftime('%Y%m%d')
+                matching_rows = csv_df[csv_df['date_str'] == target_date_str]
+                if not matching_rows.empty:
+                    selected_row = matching_rows.iloc[0]
+                    print(f"✅ 使用指定日期数据: {target_date_str}")
+                else:
+                    # 如果没有找到匹配的日期，使用最近的一个
+                    selected_row = csv_df.iloc[-1]
+                    print(f"⚠️ 未找到日期 {target_date_str}，使用最近交易日: {selected_row['date'].date()}")
+            else:
+                # 没有指定日期，使用最近的
+                selected_row = csv_df.iloc[-1]
+            
+            # 从数据库获取股票名称
+            stock_name = _get_stock_name_from_db(stock_code)
+            
+            result = {
+                "code": stock_code,
+                "name": stock_name,
+                "price": float(selected_row["close"]) if pd.notna(selected_row["close"]) else 0.0,
+                "price_change_pct": float(selected_row["price_change_pct"]) if pd.notna(selected_row["price_change_pct"]) else 0.0,
+                "volume": float(selected_row["amount"]) if pd.notna(selected_row["amount"]) else 0.0,
+                "turnover_rate": float(selected_row["turnover_rate"]) if pd.notna(selected_row["turnover_rate"]) else 0.0,
+                "amplitude": float(selected_row["amplitude"]) if pd.notna(selected_row["amplitude"]) else 0.0,
+                "volume_ratio": 0.0,
+                "high": float(selected_row["high"]) if pd.notna(selected_row["high"]) else 0.0,
+                "low": float(selected_row["low"]) if pd.notna(selected_row["low"]) else 0.0,
+                "open": float(selected_row["open"]) if pd.notna(selected_row["open"]) else 0.0,
+                "close": float(selected_row["close"]) if pd.notna(selected_row["close"]) else 0.0,
+                "market_cap": 0.0,
+                "float_share": 0.0,
+                "limit_status": "涨停" if float(selected_row["price_change_pct"]) >= 9.9 else ("跌停" if float(selected_row["price_change_pct"]) <= -9.9 else "正常")
+            }
+            
+            _stock_data_cache[cache_key] = result
+            _stock_data_cache_time[cache_key] = current_time
+            print(f"✅ 从CSV获取成功: {stock_code}")
+            return result
+    except Exception as e:
+        print(f"⚠️ 本地CSV获取失败: {e}")
+    
+    # 本地CSV不可用，尝试使用akshare
+    try:
+        print(f"🌐 尝试从akshare获取数据: {stock_code}")
         
         if target_date is None:
             end_date = datetime.now().strftime('%Y%m%d')
@@ -491,24 +547,43 @@ def get_stock_data_fast(stock_code, use_cache=True, target_date=None):
                 return _stock_data_cache[stock_code]
             return None
 
-        latest = df.iloc[-1]
+        # 根据target_date筛选数据
+        if target_date is not None:
+            # 确保日期列是字符串格式进行匹配
+            df['日期'] = df['日期'].astype(str)
+            target_date_str = date_str
+            # 查找匹配的日期
+            matching_rows = df[df['日期'] == target_date_str]
+            if not matching_rows.empty:
+                selected_row = matching_rows.iloc[0]
+                print(f"✅ 使用指定日期数据: {target_date_str}")
+            else:
+                # 如果没有找到匹配的日期，使用最近的一个
+                selected_row = df.iloc[-1]
+                print(f"⚠️ 未找到日期 {target_date_str}，使用最近交易日: {selected_row['日期']}")
+        else:
+            # 没有指定日期，使用最近的
+            selected_row = df.iloc[-1]
+
+        # 从数据库获取股票名称
+        stock_name = _get_stock_name_from_db(stock_code)
 
         result = {
             "code": stock_code,
-            "name": latest.get("股票代码", stock_code),
-            "price": float(latest["收盘"]) if pd.notna(latest["收盘"]) else 0.0,
-            "price_change_pct": float(latest["涨跌幅"]) if pd.notna(latest["涨跌幅"]) else 0.0,
-            "volume": float(latest["成交额"]) if pd.notna(latest["成交额"]) else 0.0,
-            "turnover_rate": float(latest["换手率"]) if pd.notna(latest["换手率"]) else 0.0,
-            "amplitude": float(latest["振幅"]) if pd.notna(latest["振幅"]) else 0.0,
+            "name": stock_name,
+            "price": float(selected_row["收盘"]) if pd.notna(selected_row["收盘"]) else 0.0,
+            "price_change_pct": float(selected_row["涨跌幅"]) if pd.notna(selected_row["涨跌幅"]) else 0.0,
+            "volume": float(selected_row["成交额"]) if pd.notna(selected_row["成交额"]) else 0.0,
+            "turnover_rate": float(selected_row["换手率"]) if pd.notna(selected_row["换手率"]) else 0.0,
+            "amplitude": float(selected_row["振幅"]) if pd.notna(selected_row["振幅"]) else 0.0,
             "volume_ratio": 0.0,
-            "high": float(latest["最高"]) if pd.notna(latest["最高"]) else 0.0,
-            "low": float(latest["最低"]) if pd.notna(latest["最低"]) else 0.0,
-            "open": float(latest["开盘"]) if pd.notna(latest["开盘"]) else 0.0,
-            "close": float(latest["收盘"]) if pd.notna(latest["收盘"]) else 0.0,
+            "high": float(selected_row["最高"]) if pd.notna(selected_row["最高"]) else 0.0,
+            "low": float(selected_row["最低"]) if pd.notna(selected_row["最低"]) else 0.0,
+            "open": float(selected_row["开盘"]) if pd.notna(selected_row["开盘"]) else 0.0,
+            "close": float(selected_row["收盘"]) if pd.notna(selected_row["收盘"]) else 0.0,
             "market_cap": 0.0,
             "float_share": 0.0,
-            "limit_status": "涨停" if float(latest["涨跌幅"]) >= 9.9 else ("跌停" if float(latest["涨跌幅"]) <= -9.9 else "正常")
+            "limit_status": "涨停" if float(selected_row["涨跌幅"]) >= 9.9 else ("跌停" if float(selected_row["涨跌幅"]) <= -9.9 else "正常")
         }
 
         _stock_data_cache[cache_key] = result
@@ -519,7 +594,18 @@ def get_stock_data_fast(stock_code, use_cache=True, target_date=None):
     except Exception as e:
         print(f"极速获取股票数据失败: {e}")
         
-        if "ProxyError" in str(e) or "Max retries exceeded" in str(e) or "ConnectionError" in str(e):
+        # 检查是否是网络相关错误
+        error_str = str(e)
+        is_network_error = any([
+            "ProxyError" in error_str,
+            "Max retries exceeded" in error_str,
+            "Connection aborted" in error_str,
+            "RemoteDisconnected" in error_str,
+            "ConnectionError" in error_str,
+            isinstance(e, requests.exceptions.ConnectionError)
+        ])
+        
+        if is_network_error:
             print(f"⚠️ 网络连接错误，尝试使用备用数据源（雪球API）")
             xueqiu_data = get_stock_data_from_xueqiu(stock_code)
             if xueqiu_data:
@@ -540,6 +626,9 @@ def get_stock_data_from_xueqiu(stock_code):
     """
     try:
         print(f"尝试从雪球获取股票数据: {stock_code}")
+        
+        # 从数据库获取股票名称
+        stock_name = _get_stock_name_from_db(stock_code)
         
         session = requests.Session()
         session.trust_env = False
@@ -570,7 +659,7 @@ def get_stock_data_from_xueqiu(stock_code):
                 
                 result = {
                     "code": stock_code,
-                    "name": quote.get('name', stock_code),
+                    "name": stock_name,
                     "price": float(quote.get('current', 0)),
                     "price_change_pct": float(quote.get('percent', 0)),
                     "volume": float(quote.get('amount', 0)) * 10000,  # 金额(亿)转成交金额
@@ -585,7 +674,7 @@ def get_stock_data_from_xueqiu(stock_code):
                     "float_share": float(quote.get('float_market_capital', 0)),
                     "limit_status": "涨停" if float(quote.get('percent', 0)) >= 9.9 else ("跌停" if float(quote.get('percent', 0)) <= -9.9 else "正常")
                 }
-                print(f"✅ 雪球API获取成功: {stock_code}")
+                print(f"✅ 雪球API获取成功: {stock_code} ({stock_name})")
                 return result
         
         print(f"❌ 雪球API返回数据异常")
@@ -594,6 +683,40 @@ def get_stock_data_from_xueqiu(stock_code):
     except Exception as e:
         print(f"雪球API获取失败: {e}")
         return None
+
+
+def _get_stock_name_from_db(stock_code):
+    """
+    从本地数据库获取股票名称
+    """
+    try:
+        import sqlite3
+        import os
+        
+        # 尝试多个可能的数据库路径
+        db_paths = [
+            os.path.join(os.path.dirname(__file__), '../data/stocks_cn.db'),
+            os.path.join(os.path.dirname(__file__), '../../data/stocks_cn.db'),
+            os.path.join(os.path.dirname(__file__), '../../core/data/stocks_cn.db'),
+            'data/stocks_cn.db',
+            'stocks_cn.db'
+        ]
+        
+        for db_path in db_paths:
+            if os.path.exists(db_path):
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute('SELECT name FROM stocks WHERE code = ?', (stock_code,))
+                row = cursor.fetchone()
+                conn.close()
+                if row:
+                    return row[0]
+        
+        # 如果数据库中没有找到，返回股票代码作为名称
+        return stock_code
+    except Exception as e:
+        print(f"从数据库获取股票名称失败: {e}")
+        return stock_code
 
 
 def format_stock_data(data):

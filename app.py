@@ -270,6 +270,16 @@ with tab1:
         if not stock:
             st.error("请输入股票代码")
         else:
+            # 清理股票代码，只保留数字部分
+            import re
+            stock = re.sub(r'[^0-9]', '', stock)
+            
+            if not stock:
+                st.error("请输入有效的股票代码")
+                st.stop()
+            
+            stock = stock.zfill(6)
+            
             progress_bar = st.progress(0, text="准备开始...")
 
             progress_bar.progress(10, text="📈 步骤 1/5：正在获取个股数据...")

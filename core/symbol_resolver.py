@@ -197,11 +197,11 @@ class SymbolResolver:
         conn.close()
 
     def get_all_stocks(self) -> List[Dict]:
-        """获取所有股票"""
+        """获取所有股票，按代码排序"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        cursor.execute("SELECT code, name, sector FROM stocks ORDER BY name")
+        cursor.execute("SELECT code, name, sector FROM stocks ORDER BY code")
         
         results = []
         for row in cursor.fetchall():
