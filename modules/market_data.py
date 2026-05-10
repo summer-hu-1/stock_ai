@@ -34,6 +34,15 @@ _stock_data_cache_ttl = 60
 
 _USE_MOCK_DATA = False
 
+# 备用数据源配置
+_ALTERNATE_DATA_SOURCES = {
+    'xueqiu': {
+        'enabled': True,
+        'name': '雪球API',
+        'base_url': 'https://stock.xueqiu.com'
+    }
+}
+
 
 def set_mock_data_mode(enable):
     """设置是否使用模拟数据模式"""
@@ -286,6 +295,34 @@ def test_api_connection():
             'message': f'调用失败: {str(e)[:50]}'
         })
     
+    # 测试雪球API（备用数据源）
+    try:
+        start_time = time.time()
+        xueqiu_data = get_stock_data_from_xueqiu('600519')
+        response_time = (time.time() - start_time) * 1000
+        
+        if xueqiu_data:
+            results.append({
+                'name': '雪球API（备用数据源）',
+                'status': 'success',
+                'response_time': f'{response_time:.2f}ms',
+                'message': f'连接成功，股票: {xueqiu_data.get("name", "未知")} {xueqiu_data.get("price", 0)}元'
+            })
+        else:
+            results.append({
+                'name': '雪球API（备用数据源）',
+                'status': 'error',
+                'response_time': f'{response_time:.2f}ms',
+                'message': '返回数据为空'
+            })
+    except Exception as e:
+        results.append({
+            'name': '雪球API（备用数据源）',
+            'status': 'error',
+            'response_time': '-',
+            'message': f'连接失败: {str(e)[:50]}'
+        })
+    
     return results
 
 def get_stock_data(stock_code, use_cache=True):
@@ -309,14 +346,24 @@ def get_stock_data(stock_code, use_cache=True):
         print(f"正在获取股票数据: {stock_code}")
         df = ak.stock_zh_a_spot_em()
 
+        # akshare可能在内部捕获异常并返回None，需要检查
         if df is None:
-            print(f"警告: API返回None，尝试使用缓存")
-            if stock_code in _stock_data_cache:
-                return _stock_data_cache[stock_code]
-            return None
+            print(f"警告: API返回None，尝试使用备用数据源（雪球API）")
+            xueqiu_data = get_stock_data_from_xueqiu(stock_code)
+            if xueqiu_data:
+                _stock_data_cache[stock_code] = xueqiu_data
+                _stock_data_cache_time[stock_code] = current_time
+                return xueqiu_data
+            print(f"❌ 备用数据源也失败，尝试使用极速模式")
+            return get_stock_data_fast(stock_code, use_cache=False)
 
         if not isinstance(df, pd.DataFrame) or df.empty:
-            print(f"警告: 获取到的数据为空或格式错误，尝试使用缓存")
+            print(f"警告: 获取到的数据为空或格式错误，尝试使用备用数据源（雪球API）")
+            xueqiu_data = get_stock_data_from_xueqiu(stock_code)
+            if xueqiu_data:
+                _stock_data_cache[stock_code] = xueqiu_data
+                _stock_data_cache_time[stock_code] = current_time
+                return xueqiu_data
             if stock_code in _stock_data_cache:
                 return _stock_data_cache[stock_code]
             return None
@@ -360,11 +407,25 @@ def get_stock_data(stock_code, use_cache=True):
 
     except Exception as e:
         print(f"获取股票数据失败: {e}")
-        import traceback
-        traceback.print_exc()
         
-        if "ProxyError" in str(e) or "Max retries exceeded" in str(e):
-            print(f"⚠️ 网络代理错误，尝试使用极速模式获取数据")
+        # 检查是否是网络相关错误
+        error_str = str(e)
+        is_network_error = any([
+            "ProxyError" in error_str,
+            "Max retries exceeded" in error_str,
+            "Connection aborted" in error_str,
+            "RemoteDisconnected" in error_str,
+            isinstance(e, requests.exceptions.ConnectionError)
+        ])
+        
+        if is_network_error:
+            print(f"⚠️ 网络连接错误，尝试使用备用数据源（雪球API）")
+            xueqiu_data = get_stock_data_from_xueqiu(stock_code)
+            if xueqiu_data:
+                _stock_data_cache[stock_code] = xueqiu_data
+                _stock_data_cache_time[stock_code] = current_time
+                return xueqiu_data
+            print(f"❌ 备用数据源也失败，尝试使用极速模式")
             return get_stock_data_fast(stock_code, use_cache=False)
         
         if stock_code in _stock_data_cache:
@@ -457,11 +518,14 @@ def get_stock_data_fast(stock_code, use_cache=True, target_date=None):
 
     except Exception as e:
         print(f"极速获取股票数据失败: {e}")
-        import traceback
-        traceback.print_exc()
         
-        if "ProxyError" in str(e) or "Max retries exceeded" in str(e):
-            print(f"⚠️ 网络代理错误，请检查网络连接或代理设置")
+        if "ProxyError" in str(e) or "Max retries exceeded" in str(e) or "ConnectionError" in str(e):
+            print(f"⚠️ 网络连接错误，尝试使用备用数据源（雪球API）")
+            xueqiu_data = get_stock_data_from_xueqiu(stock_code)
+            if xueqiu_data:
+                _stock_data_cache[cache_key] = xueqiu_data
+                _stock_data_cache_time[cache_key] = current_time
+                return xueqiu_data
         
         if cache_key in _stock_data_cache:
             print(f"📦 获取失败，返回缓存数据")
@@ -469,6 +533,68 @@ def get_stock_data_fast(stock_code, use_cache=True, target_date=None):
         if stock_code in _stock_data_cache:
             return _stock_data_cache[stock_code]
         return None
+
+def get_stock_data_from_xueqiu(stock_code):
+    """
+    从雪球API获取股票数据（备用数据源）
+    """
+    try:
+        print(f"尝试从雪球获取股票数据: {stock_code}")
+        
+        session = requests.Session()
+        session.trust_env = False
+        session.proxies = {}
+        
+        # 确定市场类型
+        if stock_code.startswith('6'):
+            market = 'SH'
+        else:
+            market = 'SZ'
+        
+        url = f'https://stock.xueqiu.com/v5/stock/realtime/quotec.json?symbol={market}{stock_code}'
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            'Referer': f'https://xueqiu.com/S/{market}{stock_code}'
+        }
+        
+        r = session.get(url, headers=headers, timeout=10)
+        
+        if r.status_code == 200:
+            data = r.json()
+            # 雪球API返回的data是列表格式
+            data_list = data.get('data', [])
+            
+            if data_list and len(data_list) > 0:
+                quote = data_list[0]
+                
+                result = {
+                    "code": stock_code,
+                    "name": quote.get('name', stock_code),
+                    "price": float(quote.get('current', 0)),
+                    "price_change_pct": float(quote.get('percent', 0)),
+                    "volume": float(quote.get('amount', 0)) * 10000,  # 金额(亿)转成交金额
+                    "turnover_rate": float(quote.get('turnover_rate', 0)),
+                    "amplitude": float(quote.get('amplitude', 0)),
+                    "volume_ratio": 0.0,  # 雪球API不提供量比
+                    "high": float(quote.get('high', 0)),
+                    "low": float(quote.get('low', 0)),
+                    "open": float(quote.get('open', 0)),
+                    "close": float(quote.get('last_close', 0)),
+                    "market_cap": float(quote.get('market_capital', 0)),
+                    "float_share": float(quote.get('float_market_capital', 0)),
+                    "limit_status": "涨停" if float(quote.get('percent', 0)) >= 9.9 else ("跌停" if float(quote.get('percent', 0)) <= -9.9 else "正常")
+                }
+                print(f"✅ 雪球API获取成功: {stock_code}")
+                return result
+        
+        print(f"❌ 雪球API返回数据异常")
+        return None
+        
+    except Exception as e:
+        print(f"雪球API获取失败: {e}")
+        return None
+
 
 def format_stock_data(data):
     """
