@@ -173,9 +173,10 @@ with tab1:
                             if all_stocks_xueqiu:
                                 df = pd.DataFrame(all_stocks_xueqiu)
                             else:
+                                df = None
                                 st.info("📡 雪球API未返回有效数据")
 
-                        if df is not None and not df.empty:
+                        if 'df' in locals() and df is not None and not df.empty:
                             stocks = []
                             for _, row in df.iterrows():
                                 stocks.append({
@@ -256,7 +257,7 @@ with tab1:
                             else:
                                 df = None
 
-                        if df is not None and not df.empty:
+                        if 'df' in locals() and df is not None and not df.empty:
                             stocks = []
                             for _, row in df.iterrows():
                                 stocks.append({
@@ -376,10 +377,10 @@ with tab1:
     col1, col2, col3, col4 = st.columns([3, 1, 1, 2])
     with col1:
         selected_date = st.date_input(
-            "日期选择", 
+            "📅 日期选择",
             value=datetime.now(),
             key="date_single",
-            help="选择要分析的日期（极速模式下可用）"
+            help="选择要分析的日期（支持所有模式）"
         )
 
     with col3:
@@ -428,10 +429,8 @@ with tab1:
 
             progress_bar.progress(10, text="📈 步骤 1/5：正在获取个股数据...")
             with st.spinner("📈 正在获取个股数据..."):
-                if selected_data_mode == "⚡ 极速模式（仅个股数据）":
-                    stock_data = get_stock_data_fast(stock, target_date=selected_date)
-                else:
-                    stock_data = get_stock_data(stock)
+                # 所有模式都支持日期选择
+                stock_data = get_stock_data(stock, target_date=selected_date)
 
             if not stock_data:
                 st.error(f"未找到股票代码: {stock}")

@@ -325,16 +325,23 @@ def test_api_connection():
     
     return results
 
-def get_stock_data(stock_code, use_cache=True):
+def get_stock_data(stock_code, use_cache=True, target_date=None):
     """
     获取A股基础行情数据
     use_cache: 是否使用缓存
+    target_date: 目标日期，datetime对象或字符串(YYYY-MM-DD/YYYYMMDD)，None为最近交易日
     """
     global _stock_data_cache, _stock_data_cache_time, _USE_MOCK_DATA
 
     if _USE_MOCK_DATA:
         print(f"📋 使用模拟数据: {stock_code}")
         return get_mock_stock_data(stock_code)
+
+    # 如果指定了日期，优先使用极速模式获取历史数据
+    if target_date is not None:
+        print(f"📅 指定日期 {target_date}，使用极速模式获取历史数据")
+        # 有指定日期时不使用缓存，确保获取最新选择的数据
+        return get_stock_data_fast(stock_code, use_cache=False, target_date=target_date)
 
     current_time = time.time()
     if use_cache and stock_code in _stock_data_cache:
@@ -479,8 +486,8 @@ def get_stock_data_fast(stock_code, use_cache=True, target_date=None):
             # 根据target_date筛选数据
             if target_date is not None:
                 target_date_str = date_str
-                # CSV中的日期格式是YYYY-MM-DD，需要转换
-                csv_df['date_str'] = csv_df['date'].dt.strftime('%Y%m%d')
+                # CSV中的日期格式是YYYY-MM-DD字符串，需要先转换为datetime再格式化
+                csv_df['date_str'] = pd.to_datetime(csv_df['date']).dt.strftime('%Y%m%d')
                 matching_rows = csv_df[csv_df['date_str'] == target_date_str]
                 if not matching_rows.empty:
                     selected_row = matching_rows.iloc[0]
