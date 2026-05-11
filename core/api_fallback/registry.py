@@ -87,6 +87,76 @@ def register_default_apis():
             return None
         return df
 
+    def xueqiu_a_stock_hist(code: str, **kwargs) -> Any:
+        """雪球API A股历史数据（通过k线数据获取）"""
+        import requests
+        import os
+        import pandas as pd
+        from datetime import datetime, timedelta
+
+        os.environ['HTTP_PROXY'] = ''
+        os.environ['HTTPS_PROXY'] = ''
+        os.environ['http_proxy'] = ''
+        os.environ['https_proxy'] = ''
+
+        session = requests.Session()
+        session.trust_env = False
+        session.proxies = {}
+
+        pure_code = code.replace(".SH", "").replace(".SZ", "").strip()
+
+        # 判断市场
+        if pure_code.startswith('6'):
+            market = 'SH'
+        else:
+            market = 'SZ'
+
+        url = f'https://stock.xueqiu.com/v5/stock/chart/kline.json?symbol={market}{pure_code}&period=day'
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+            'Referer': f'https://xueqiu.com/S/{market}{pure_code}'
+        }
+
+        r = session.get(url, headers=headers, timeout=15)
+        if r.status_code != 200:
+            return None
+
+        data = r.json()
+        klines = data.get('data', {}).get('item', [])
+
+        if not klines:
+            return None
+
+        # 解析数据
+        rows = []
+        for kline in klines:
+            # 雪球格式: [timestamp, open, high, low, close, volume, turnover_rate, amount, change, percent]
+            if len(kline) >= 10:
+                ts, open_p, high_p, low_p, close_p, vol, turnover, amount, chg, pct = kline[:10]
+                date = datetime.fromtimestamp(ts / 1000).strftime('%Y-%m-%d')
+                rows.append({
+                    'date': date,
+                    'open': open_p,
+                    'high': high_p,
+                    'low': low_p,
+                    'close': close_p,
+                    'volume': vol,
+                    'amount': amount,
+                    'turnover_rate': turnover,
+                    'price_change_pct': pct,
+                    'amplitude': (high_p - low_p) / open_p * 100 if open_p > 0 else 0
+                })
+
+        df = pd.DataFrame(rows)
+        
+        # 过滤日期范围
+        if 'start_date' in kwargs:
+            df = df[df['date'] >= kwargs['start_date']]
+        if 'end_date' in kwargs:
+            df = df[df['date'] <= kwargs['end_date']]
+            
+        return df
+
     def xueqiu_a_stock_data(code: str, **kwargs) -> Dict[str, Any]:
         """雪球API A股数据"""
         import requests
@@ -140,6 +210,59 @@ def register_default_apis():
             "volume_ratio": float(quote.get('volume_ratio', 0)),
             "market": "A",
         }
+
+    def csv_a_stock_hist(code: str, **kwargs) -> Any:
+        """本地CSV A股历史数据"""
+        import os
+        import pandas as pd
+        import logging
+
+        logger = logging.getLogger(__name__)
+        
+        pure_code = code.replace(".SH", "").replace(".SZ", "").strip()
+
+        # 查找CSV文件
+        data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'cn', 'daily')
+        csv_path = os.path.join(data_dir, f'{pure_code}.csv')
+
+        logger.info(f"📂 尝试读取CSV文件: {csv_path}")
+
+        if not os.path.exists(csv_path):
+            logger.warning(f"⚠️ CSV文件不存在: {csv_path}")
+            return None
+
+        try:
+            df = pd.read_csv(csv_path)
+            logger.info(f"✅ CSV文件读取成功，共 {len(df)} 条记录")
+            
+            if df.empty:
+                logger.warning("⚠️ CSV文件为空")
+                return None
+
+            # 确保日期列是字符串类型
+            if 'date' in df.columns:
+                df['date'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+
+            # 过滤日期范围
+            if 'start_date' in kwargs:
+                start_date = kwargs['start_date']
+                if len(start_date) == 8:
+                    start_date = f"{start_date[:4]}-{start_date[4:6]}-{start_date[6:]}"
+                df = df[df['date'] >= start_date]
+
+            if 'end_date' in kwargs:
+                end_date = kwargs['end_date']
+                if len(end_date) == 8:
+                    end_date = f"{end_date[:4]}-{end_date[4:6]}-{end_date[6:]}"
+                df = df[df['date'] <= end_date]
+
+            logger.info(f"✅ 日期过滤后，剩余 {len(df)} 条记录")
+            return df
+        except Exception as e:
+            logger.warning(f"❌ 读取CSV历史数据失败: {csv_path}, 错误: {e}")
+            import traceback
+            logger.warning(traceback.format_exc())
+            return None
 
     def csv_a_stock_data(code: str, **kwargs) -> Dict[str, Any]:
         """本地CSV A股数据"""
@@ -345,6 +468,28 @@ def register_default_apis():
         retry_count=2
     )
 
+    manager.register_api(
+        name="xueqiu_a_stock_hist",
+        provider=xueqiu_a_stock_hist,
+        market=MarketType.A_STOCK,
+        data_type=DataType.HISTORICAL_DATA,
+        run_mode=RunMode.STANDARD,
+        priority=1,
+        timeout=20.0,
+        retry_count=2
+    )
+
+    manager.register_api(
+        name="csv_a_stock_hist",
+        provider=csv_a_stock_hist,
+        market=MarketType.A_STOCK,
+        data_type=DataType.HISTORICAL_DATA,
+        run_mode=RunMode.STANDARD,
+        priority=2,
+        timeout=5.0,
+        retry_count=1
+    )
+
     # A股 - 市场情绪
     manager.register_api(
         name="akshare_a_sentiment",
@@ -398,6 +543,23 @@ def get_stock_data_with_fallback(code: str, market: MarketType = MarketType.A_ST
     """
     manager = get_fallback_manager()
     result = manager.call_with_fallback(market, DataType.STOCK_DATA, RunMode.STANDARD, code, **kwargs)
+    return result.data if result.success else None
+
+
+def get_stock_hist_with_fallback(code: str, market: MarketType = MarketType.A_STOCK, **kwargs) -> Any:
+    """
+    获取历史数据（带自动降级）
+
+    Args:
+        code: 股票代码
+        market: 市场类型
+        **kwargs: 额外参数（start_date, end_date等）
+
+    Returns:
+        Any: 历史数据（DataFrame）
+    """
+    manager = get_fallback_manager()
+    result = manager.call_with_fallback(market, DataType.HISTORICAL_DATA, RunMode.STANDARD, code, **kwargs)
     return result.data if result.success else None
 
 

@@ -1,7 +1,6 @@
 import streamlit as st
 import sys
 import os
-import pandas as pd
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -9,12 +8,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from agents.controller_agent import multi_agent_review
 from modules.storage import init_db, save_analysis, save_market_sentiment, get_all_companies, save_company_info, get_company_by_code
 from deepseek import stock_review, check_balance
-from modules.market_data import get_stock_data, get_stock_data_fast, test_api_connection, set_mock_data_mode
+from modules.market_data import get_stock_data, get_stock_data_fast
 from modules.market_sentiment import get_market_sentiment, get_hot_sectors
-
-# 多市场数据服务
-from core.data_service import DataService
-from core.market_registry import get_market_names, get_market_config
 
 init_db()
 
@@ -52,335 +47,57 @@ def get_company_list():
 st.set_page_config(page_title="AI股票复盘系统 V6", page_icon="🧠", layout="wide")
 st.title("🧠 AI股票复盘系统（多Agent架构版）")
 
-col_title, col_test, col_mock = st.columns([3, 1, 1])
-with col_test:
-    if st.button("🔍 检测网络连接", help="测试API连接状态"):
-        with st.spinner("正在检测网络连接..."):
-            results = test_api_connection()
-            
-            st.subheader("🔌 网络检测结果")
-            for result in results:
-                status_color = "green" if result['status'] == 'success' else "yellow" if result['status'] == 'warning' else "red"
-                status_icon = "✅" if result['status'] == 'success' else "⚠️" if result['status'] == 'warning' else "❌"
-                
-                st.markdown(f"""
-                <div style="padding: 8px; border-radius: 4px; margin-bottom: 8px; background-color: #f8f9fa;">
-                    <strong>{status_icon} {result['name']}</strong>
-                    <br/>
-                    <span style="color: {status_color};">{result['message']}</span>
-                    <span style="float: right; font-size: 12px; color: #666;">{result['response_time']}</span>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            all_success = all(r['status'] == 'success' for r in results)
-            if all_success:
-                st.success("🎉 所有API连接正常！")
-            else:
-                st.warning("⚠️ 部分API连接存在问题，请检查网络设置")
-
-with col_mock:
-    mock_mode = st.toggle("🎭 模拟数据模式", help="使用模拟数据进行测试（无需网络）")
-    if mock_mode:
-        set_mock_data_mode(True)
-        st.success("✅ 已启用模拟数据模式")
-    else:
-        set_mock_data_mode(False)
-
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠 多Agent分析（完整）", "📊 各Agent详情", "📈 历史记录", "📅 情绪周期", "📊 历史日线"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠 多Agent分析（完整）", "📊 各Agent详情", "📈 历史记录", "📅 情绪周期", "📈 日线数据"])
 
 with tab1:
     st.header("⚡ 单Prompt分析（快速）")
 
-    # 多市场选择 + 刷新按钮
-    col_market, col_btn_refresh = st.columns([1, 1])
-    
-    with col_market:
-        market_name = st.selectbox(
-            "选择市场",
-            get_market_names(),
-            key="market_select",
-            help="选择要分析的股票市场"
-        )
-    
-    with col_btn_refresh:
-        st.write("")
-        st.write("")
-        if st.button("🔄 刷新公司名称", key="refresh_companies", help="从数据源获取最新的公司名称和股票代码"):
-            with st.spinner("📊 正在从数据源获取公司数据..."):
-                try:
-                    if market_name == "A股":
-                        import akshare as ak
-                        try:
-                            # 禁用代理
-                            import os
-                            os.environ['HTTP_PROXY'] = ''
-                            os.environ['HTTPS_PROXY'] = ''
-                            os.environ['http_proxy'] = ''
-                            os.environ['https_proxy'] = ''
+    companies = get_company_list()
+    if companies is None:
+        with st.spinner("📊 首次加载，正在获取公司列表..."):
+            load_company_data()
+            companies = get_company_list()
 
-                            df = ak.stock_zh_a_spot_em()
-                        except Exception as e:
-                            # akshare失败，尝试使用雪球API
-                            st.info("📡 akshare不可用，尝试使用雪球API...")
-                            import requests
-                            session = requests.Session()
-                            session.trust_env = False
-                            session.proxies = {}
+    stock_options = [""] + [f"{c['name']} ({c['code']})" for c in companies]
+    stock_code_map = {f"{c['name']} ({c['code']})": c['code'] for c in companies}
 
-                            # 从雪球获取股票列表
-                            all_stocks_xueqiu = []
-                            for page in range(1, 20):  # 最多20页
-                                try:
-                                    url = "https://stock.xueqiu.com/v5/stock/screener/quote/list.json"
-                                    headers = {
-                                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-                                        'Referer': 'https://xueqiu.com'
-                                    }
-                                    params = {
-                                        'page': page,
-                                        'size': 100,
-                                        'order': 'desc',
-                                        'orderby': 'percent',
-                                        'market': 'CN',
-                                        'type': 'sh_sz'
-                                    }
+    col1, col2, col3, col4 = st.columns([3, 1, 1, 2])
+    with col1:
+        if companies:
+            selected_stock = st.selectbox(
+                "选择或输入股票代码",
+                options=stock_options,
+                index=0,
+                format_func=lambda x: x if x else "输入/选择股票...",
+                key="stock_select"
+            )
+            stock = stock_code_map.get(selected_stock, selected_stock if selected_stock else "")
+            stock_input = st.text_input(
+                "或直接输入股票代码（如 601360）",
+                value=stock,
+                placeholder="601360",
+                key="stock_single"
+            )
+            if stock_input:
+                stock = stock_input
+        else:
+            stock = st.text_input("输入股票代码（如 601360）", placeholder="601360", key="stock_single")
 
-                                    r = session.get(url, headers=headers, params=params, timeout=10)
-                                    if r.status_code != 200:
-                                        break
-
-                                    data = r.json()
-                                    stocks_list = data.get('data', {}).get('list', [])
-                                    if not stocks_list:
-                                        break
-
-                                    for stock in stocks_list:
-                                        symbol = stock.get('symbol', '')
-                                        code = symbol.replace('SH', '').replace('SZ', '')
-                                        all_stocks_xueqiu.append({
-                                            'code': code,
-                                            'name': stock.get('name', ''),
-                                            'sector': ''
-                                        })
-
-                                    total = data.get('data', {}).get('count', 0)
-                                    if page * 100 >= total:
-                                        break
-                                except Exception as e:
-                                    st.warning(f"⚠️ 雪球API第{page}页获取失败: {str(e)[:50]}")
-                                    break
-
-                            if all_stocks_xueqiu:
-                                df = pd.DataFrame(all_stocks_xueqiu)
-                            else:
-                                df = None
-                                st.info("📡 雪球API未返回有效数据")
-
-                        if 'df' in locals() and df is not None and not df.empty:
-                            stocks = []
-                            for _, row in df.iterrows():
-                                stocks.append({
-                                    "code": str(row.get("代码", row.get("code", ""))),
-                                    "name": str(row.get("名称", row.get("name", ""))),
-                                    "sector": str(row.get("行业", row.get("sector", ""))) if "行业" in str(row.keys()) else ""
-                                })
-                            from core.symbol_resolver import SymbolResolver
-                            from core.market_registry import get_market_config
-                            resolver = SymbolResolver(get_market_config(market_name))
-                            resolver.bulk_add_stocks(stocks)
-                            st.success(f"✅ 已成功获取并保存 {len(stocks)} 家{market_name}公司数据！")
-                        else:
-                            st.error("❌ 获取数据失败")
-                    elif market_name == "港股":
-                        import akshare as ak
-                        try:
-                            # 禁用代理
-                            import os
-                            os.environ['HTTP_PROXY'] = ''
-                            os.environ['HTTPS_PROXY'] = ''
-                            os.environ['http_proxy'] = ''
-                            os.environ['https_proxy'] = ''
-
-                            df = ak.stock_hk_spot_em()
-                        except Exception as e:
-                            # akshare失败，尝试使用雪球API
-                            st.info("📡 akshare不可用，尝试使用雪球API...")
-                            import requests
-                            session = requests.Session()
-                            session.trust_env = False
-                            session.proxies = {}
-
-                            # 从雪球获取港股列表
-                            all_stocks_xueqiu = []
-                            for page in range(1, 20):  # 最多20页
-                                try:
-                                    url = "https://stock.xueqiu.com/v5/stock/screener/quote/list.json"
-                                    headers = {
-                                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-                                        'Referer': 'https://xueqiu.com'
-                                    }
-                                    params = {
-                                        'page': page,
-                                        'size': 100,
-                                        'order': 'desc',
-                                        'orderby': 'percent',
-                                        'market': 'HK',
-                                        'type': 'hk'
-                                    }
-
-                                    r = session.get(url, headers=headers, params=params, timeout=10)
-                                    if r.status_code != 200:
-                                        break
-
-                                    data = r.json()
-                                    stocks_list = data.get('data', {}).get('list', [])
-                                    if not stocks_list:
-                                        break
-
-                                    for stock in stocks_list:
-                                        symbol = stock.get('symbol', '')
-                                        code = symbol.replace('HK', '')
-                                        all_stocks_xueqiu.append({
-                                            'code': code,
-                                            'name': stock.get('name', ''),
-                                            'sector': ''
-                                        })
-
-                                    total = data.get('data', {}).get('count', 0)
-                                    if page * 100 >= total:
-                                        break
-                                except:
-                                    break
-
-                            if all_stocks_xueqiu:
-                                df = pd.DataFrame(all_stocks_xueqiu)
-                            else:
-                                df = None
-
-                        if 'df' in locals() and df is not None and not df.empty:
-                            stocks = []
-                            for _, row in df.iterrows():
-                                stocks.append({
-                                    "code": str(row.get("代码", row.get("code", ""))),
-                                    "name": str(row.get("名称", row.get("name", ""))),
-                                    "sector": ""
-                                })
-                            from core.symbol_resolver import SymbolResolver
-                            from core.market_registry import get_market_config
-                            resolver = SymbolResolver(get_market_config(market_name))
-
-                            # 先显示本地已有数量
-                            local_count = resolver.get_stock_count()
-                            st.info(f"📊 本地已存在 {local_count} 只股票")
-
-                            # 增量更新
-                            added_count = resolver.bulk_add_stocks(stocks, incremental=True)
-
-                            if added_count > 0:
-                                st.success(f"✅ 增量更新成功！新增 {added_count} 只股票，本地共 {local_count + added_count} 只")
-                            else:
-                                st.success(f"✅ 已是最新数据！本地共 {local_count} 只股票，无需更新")
-                        else:
-                            # API获取失败，使用本地数据
-                            from core.symbol_resolver import SymbolResolver
-                            from core.market_registry import get_market_config
-                            resolver = SymbolResolver(get_market_config(market_name))
-                            local_count = resolver.get_stock_count()
-
-                            if local_count > 0:
-                                st.info(f"📡 无法从网络获取数据，将使用本地缓存的 {local_count} 只股票")
-                            else:
-                                st.error("❌ 无法获取股票列表，且本地无缓存数据")
-                                st.info("💡 建议：")
-                                st.info("1. 检查网络连接")
-                                st.info("2. 可以使用命令行工具: `python data_sync/update_stock_list.py`")
-                    elif market_name == "美股":
-                        popular_stocks = [
-                            {"code": "AAPL", "name": "苹果", "name_en": "Apple"},
-                            {"code": "MSFT", "name": "微软", "name_en": "Microsoft"},
-                            {"code": "GOOGL", "name": "谷歌", "name_en": "Google"},
-                            {"code": "AMZN", "name": "亚马逊", "name_en": "Amazon"},
-                            {"code": "META", "name": "Meta", "name_en": "Meta"},
-                            {"code": "TSLA", "name": "特斯拉", "name_en": "Tesla"},
-                            {"code": "NVDA", "name": "英伟达", "name_en": "NVIDIA"},
-                            {"code": "JPM", "name": "摩根大通", "name_en": "JPMorgan"},
-                            {"code": "V", "name": "Visa", "name_en": "Visa"},
-                            {"code": "JNJ", "name": "强生", "name_en": "Johnson & Johnson"},
-                        ]
-                        from core.symbol_resolver import SymbolResolver
-                        from core.market_registry import get_market_config
-                        resolver = SymbolResolver(get_market_config(market_name))
-                        resolver.bulk_add_stocks(popular_stocks)
-                        st.success(f"✅ 已成功获取并保存 {len(popular_stocks)} 家{market_name}公司数据！")
-                    st.rerun()
-                except Exception as e:
-                    # 检查是否是代理错误或网络问题
-                    error_str = str(e)
-                    if "ProxyError" in error_str or "Unable to connect to proxy" in error_str:
-                        st.warning("⚠️ 网络代理连接失败")
-                        st.info("""
-                        **建议排查：**
-                        - 检查网络代理设置是否正确
-                        - 尝试关闭代理后重试
-                        - 如果在公司网络，请联系IT部门
-                        - 可使用模拟数据模式继续使用系统
-                        """)
-                    elif "Max retries exceeded" in error_str or "Connection refused" in error_str or "Connection aborted" in error_str or "RemoteDisconnected" in error_str:
-                        st.warning("⚠️ 网络连接失败，尝试使用备用数据源...")
-                        st.info("💡 建议：可使用命令行工具 `python data_sync/update_stock_list.py` 手动刷新股票列表")
-                    elif "Too Many Requests" in error_str or "Rate limited" in error_str:
-                        st.warning("⚠️ 请求过于频繁，请稍后重试")
-                        st.info("""
-                        **建议：**
-                        - 等待几分钟后再尝试
-                        - 可使用模拟数据模式继续使用系统
-                        """)
-                    else:
-                        st.warning("⚠️ 获取数据失败")
-                        st.info(f"**错误原因：** {str(e)[:100]}...")
-                        st.info("💡 建议使用命令行工具: `python data_sync/update_stock_list.py`")
-
-    # 公司搜索选择组件（只有一个下拉框）
-    service = DataService(market_name)
-    all_stocks = service.resolver.get_all_stocks()
-    
-    # 准备下拉选项
-    if all_stocks:
-        stock_options = {f"{s['name']}({s['code']})": s for s in all_stocks}
-        stock_options_list = [""] + list(stock_options.keys())
-        stock_count = len(all_stocks)
-    else:
-        stock_options = {}
-        stock_options_list = [""]
-        stock_count = 0
-    
-    # 单一下拉选择框
-    selected_display = st.selectbox(
-        f"📋 选择股票（已加载 {stock_count} 家公司）",
-        options=stock_options_list,
-        key="stock_select",
-        format_func=lambda x: x if x else "请选择股票..."
-    )
-    
-    # 解析选中的股票
-    stock = ""
-    stock_name = ""
-    
-    if selected_display and selected_display in stock_options:
-        selected_stock = stock_options[selected_display]
-        stock = selected_stock["code"]
-        stock_name = selected_stock["name"]
-
-
-
+    col_info, col_btn = st.columns([3, 1])
+    with col_info:
+        st.caption(f"📊 已加载 {len(companies) if companies else 0} 家公司")
+    with col_btn:
+        if st.button("🔄 更新公司列表", key="refresh_companies", help="点击更新公司列表"):
+            load_company_data()
+            st.rerun()
 
     col1, col2, col3, col4 = st.columns([3, 1, 1, 2])
     with col1:
         selected_date = st.date_input(
-            "📅 日期选择",
+            "日期选择", 
             value=datetime.now(),
             key="date_single",
-            help="选择要分析的日期（支持所有模式）"
+            help="选择要分析的日期（极速模式下可用）"
         )
 
     with col3:
@@ -415,22 +132,14 @@ with tab1:
         if not stock:
             st.error("请输入股票代码")
         else:
-            # 清理股票代码，只保留数字部分
-            import re
-            stock = re.sub(r'[^0-9]', '', stock)
-            
-            if not stock:
-                st.error("请输入有效的股票代码")
-                st.stop()
-            
-            stock = stock.zfill(6)
-            
             progress_bar = st.progress(0, text="准备开始...")
 
             progress_bar.progress(10, text="📈 步骤 1/5：正在获取个股数据...")
             with st.spinner("📈 正在获取个股数据..."):
-                # 所有模式都支持日期选择
-                stock_data = get_stock_data(stock, target_date=selected_date)
+                if selected_data_mode == "⚡ 极速模式（仅个股数据）":
+                    stock_data = get_stock_data_fast(stock, target_date=selected_date)
+                else:
+                    stock_data = get_stock_data(stock)
 
             if not stock_data:
                 st.error(f"未找到股票代码: {stock}")
@@ -540,28 +249,29 @@ with tab2:
         else:
             progress_bar = st.progress(0, text="准备开始...")
 
-            progress_bar.progress(20, text="📊 步骤 1/3：构建统一市场上下文...")
-            with st.spinner("🔄 正在构建MarketContext..."):
-                try:
-                    from core.data_provider import DataProvider
-                    context = DataProvider.build_context(stock)
-                    
-                    with st.expander("📈 个股行情数据", expanded=True):
-                        st.json(context.stock_data)
-                    with st.expander("📊 市场情绪数据", expanded=True):
-                        st.json(context.market_sentiment)
-                    with st.expander("🔥 热门板块数据", expanded=True):
-                        st.json(context.sectors)
-                    
-                    progress_bar.progress(50, text="✅ MarketContext构建完成")
-                    
-                except Exception as e:
-                    st.error(f"构建MarketContext失败: {str(e)}")
-                    progress_bar.progress(100, text="❌ 分析失败")
-                    st.stop()
+            progress_bar.progress(10, text="📈 步骤 1/6：正在获取个股数据...")
+            with st.spinner("📈 正在获取个股数据..."):
+                stock_data = get_stock_data(stock)
 
-            progress_bar.progress(60, text="🤖 步骤 2/3：多Agent协同分析...")
-            with st.spinner("🧠 各Agent正在分析中..."):
+            progress_bar.progress(25, text="📊 步骤 2/6：正在获取市场情绪数据...")
+            with st.spinner("📊 正在获取市场情绪数据..."):
+                sentiment_data = get_market_sentiment()
+
+            progress_bar.progress(40, text="🔥 步骤 3/6：正在获取热门板块数据...")
+            with st.spinner("🔥 正在获取热门板块数据..."):
+                hot_sectors = get_hot_sectors()
+
+            if stock_data:
+                progress_bar.progress(50, text="✅ 数据获取完成")
+                with st.expander("📈 个股行情数据", expanded=True):
+                    st.json(stock_data)
+                with st.expander("📊 市场情绪数据", expanded=True):
+                    st.json(sentiment_data)
+                with st.expander("🔥 热门概念板块", expanded=True):
+                    st.json(hot_sectors)
+
+            progress_bar.progress(55, text="🤖 步骤 4/6：正在协调多个Agent进行市场分析...")
+            with st.spinner("🔄 正在协调多个Agent进行市场分析..."):
                 result = multi_agent_review(stock)
 
             progress_bar.progress(85, text="✅ Agent分析完成")
@@ -572,19 +282,20 @@ with tab2:
             st.session_state.agent_results = agent_results
             st.session_state.last_stock_code = stock
 
-            progress_bar.progress(90, text="💾 步骤 3/3：保存分析结果...")
-            market_mood = agent_results.get("sentiment", {}).get("data", {}).get("market_mood", "")
-            market_data = agent_results["market"]["data"]
-            market_data_for_save = {
-                "code": market_data.get("stock_code"),
-                "name": market_data.get("stock_name"),
-                "price": market_data.get("price"),
-                "price_change_pct": market_data.get("price_change_pct"),
-                "volume": market_data.get("volume"),
-                "turnover_rate": market_data.get("turnover_rate"),
-                "amplitude": market_data.get("amplitude")
-            }
-            save_analysis(market_data_for_save, final_report, market_mood, "多Agent分析")
+            progress_bar.progress(90, text="💾 步骤 5/6：正在保存分析结果...")
+            if "error" not in agent_results.get("market", {}):
+                market_mood = agent_results.get("sentiment", {}).get("market_mood", "")
+                market_data = agent_results["market"]
+                market_data_for_save = {
+                    "code": market_data.get("stock_code"),
+                    "name": market_data.get("stock_name"),
+                    "price": market_data.get("price"),
+                    "price_change_pct": market_data.get("price_change_pct"),
+                    "volume": market_data.get("volume"),
+                    "turnover_rate": market_data.get("turnover_rate"),
+                    "amplitude": market_data.get("amplitude")
+                }
+                save_analysis(market_data_for_save, final_report, market_mood, "多Agent分析")
 
             progress_bar.progress(100, text="✅ 分析完成！")
             st.balloons()
@@ -676,7 +387,7 @@ with tab3:
 
 with tab4:
     st.header("📈 历史记录")
-    from modules.storage import get_all_stocks, get_stock_history, delete_stock_history
+    from modules.storage import get_all_stocks, get_stock_history
 
     if 'refresh_history' not in st.session_state:
         st.session_state.refresh_history = True
@@ -725,23 +436,13 @@ with tab4:
                         with col_report:
                             st.markdown(record['ai_summary'])
 
-                        col_download, col_delete = st.columns([1, 1])
-                        with col_download:
-                            st.download_button(
-                                label="📥 下载报告",
-                                data=record['ai_summary'],
-                                file_name=f"复盘报告_{record['stock_code']}_{record['created_at'][:10]}.txt",
-                                mime="text/plain",
-                                key=f"download_history_{i}_{record['id']}"
-                            )
-                        with col_delete:
-                            if st.button(f"🗑️ 删除记录", key=f"delete_history_{i}_{record['id']}"):
-                                if delete_stock_history(record['id']):
-                                    st.success("✅ 记录已删除")
-                                    st.session_state.refresh_history = True
-                                    st.rerun()
-                                else:
-                                    st.error("❌ 删除失败")
+                        st.download_button(
+                            label="📥 下载报告",
+                            data=record['ai_summary'],
+                            file_name=f"复盘报告_{record['stock_code']}_{record['created_at'][:10]}.txt",
+                            mime="text/plain",
+                            key=f"download_history_{i}_{record['id']}"
+                        )
             else:
                 st.info("该股票暂无历史记录")
     else:
@@ -774,26 +475,6 @@ with tab5:
     else:
         with st.spinner("📊 获取市场情绪数据..."):
             sentiment = analyze_sentiment()
-    
-    # 处理 sentiment 为 None 的情况（网络问题导致）
-    if sentiment is None:
-        st.warning("⚠️ 无法获取市场情绪数据，使用模拟数据")
-        sentiment = {
-            "limit_up_count": 0,
-            "limit_down_count": 0,
-            "bomb_rate": 0,
-            "avg_change": 0,
-            "market_mood": "未知",
-            "rising_count": 0,
-            "falling_count": 0,
-            "flat_count": 0,
-            "total_count": 0,
-            "rise_ratio": 0,
-            "strong_count": 0,
-            "weak_count": 0,
-            "total_volume": 0,
-            "market_cap": 0
-        }
 
     st.subheader("📊 当前市场情绪")
 
@@ -836,149 +517,110 @@ with tab5:
                     st.metric("强势股", record['strong_count'])
                     st.metric("弱势股", record['weak_count'])
 
-
 with tab6:
-    st.header("📊 A股历史日线数据")
-    
-    from core.csv_provider import get_csv_provider
+    st.header("📈 A股日线数据")
+
     import pandas as pd
-    
-    csv_provider = get_csv_provider()
-    data_status = csv_provider.get_data_status()
-    
-    col_info1, col_info2, col_info3 = st.columns(3)
-    with col_info1:
-        st.metric("本地股票数", data_status.get('total_stocks', 0))
-    with col_info2:
-        st.metric("最新更新", data_status.get('latest_update', 'N/A'))
-    with col_info3:
-        st.metric("数据目录", "data/cn/daily")
-    
-    st.divider()
-    
-    # 数据同步区域
-    st.subheader("🔄 数据同步")
-    
-    sync_col1, sync_col2, sync_col3 = st.columns([2, 1, 1])
-    
-    with sync_col1:
-        sync_mode = st.radio(
-            "同步模式",
-            ["🔍 单只股票", "📋 批量同步"],
-            horizontal=True,
-            label_visibility="collapsed",
-            key="sync_mode_radio"
-        )
-    
-    with sync_col2:
-        target_stock = st.text_input(
-            "股票代码",
-            placeholder="000002",
-            key="sync_stock_code"
-        )
-    
-    with sync_col3:
-        st.write("")
-        st.write("")
-        if st.button("🚀 开始同步", type="primary", key="start_sync_btn"):
-            if sync_mode == "🔍 单只股票" and not target_stock:
-                st.warning("⚠️ 请输入股票代码")
-            else:
-                with st.spinner("正在同步数据..."):
-                    try:
-                        import os
-                        import sys
-                        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-                        
-                        from data_sync.sync_cn_daily import sync_stock
-                        from data_sync.get_stock_list import main as get_stock_list_main
-                        
-                        # 确保股票列表存在
-                        stock_list_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "cn", "stock_list.csv")
-                        if not os.path.exists(stock_list_path):
-                            get_stock_list_main()
-                        
-                        if sync_mode == "🔍 单只股票":
-                            code = str(target_stock).zfill(6)
-                            ok = sync_stock(code)
-                            if ok:
-                                st.success(f"✅ 股票 {code} 同步成功！")
-                            else:
-                                st.error(f"❌ 股票 {code} 同步失败（可能网络问题）")
-                        else:
-                            # 批量同步（只同步前100只作为演示）
-                            stock_df = pd.read_csv(stock_list_path)
-                            success_count = 0
-                            for code in stock_df["code"].head(100):
-                                code = str(code).zfill(6)
-                                if sync_stock(code):
-                                    success_count += 1
-                            st.success(f"✅ 批量同步完成: {success_count}/100 只股票")
-                        
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ 同步失败: {str(e)[:100]}")
-    
-    st.divider()
-    
-    # 查看数据区域
-    st.subheader("📈 查看数据")
-    
-    col_stock, col_days = st.columns([2, 1])
-    
-    with col_stock:
-        stock_code = st.text_input(
-            "📈 输入股票代码",
-            placeholder="如: 000002 (万科A) 或 600519 (贵州茅台)",
-            key="daily_stock_code"
-        )
-    
-    with col_days:
-        days = st.selectbox(
-            "📅 显示天数",
-            [30, 60, 90, 180, 365],
-            index=0,
-            key="daily_days"
-        )
-    
-    if stock_code:
-        stock_code = str(stock_code).zfill(6)
-        
-        df = csv_provider.get_recent_data(stock_code, days)
-        
-        if df is not None and not df.empty:
-            latest = df.iloc[-1]
-            earliest = df.iloc[0] if len(df) > 1 else latest
-            
-            col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
-            with col_stat1:
-                st.metric("最新收盘", f"{latest['close']:.2f}")
-            with col_stat2:
-                change = latest['close'] - earliest['close']
-                pct = (change / earliest['close'] * 100) if earliest['close'] > 0 else 0
-                st.metric(f"区间涨跌({days}日)", f"{pct:+.2f}%")
-            with col_stat3:
-                st.metric("最高价", f"{df['high'].max():.2f}")
-            with col_stat4:
-                st.metric("最低价", f"{df['low'].min():.2f}")
-            
-            st.dataframe(
-                df.sort_values('date', ascending=False),
-                use_container_width=True,
-                hide_index=True
-            )
-            
-            st.download_button(
-                label="📥 下载CSV",
-                data=df.to_csv(index=False),
-                file_name=f"{stock_code}_daily.csv",
-                mime="text/csv"
-            )
+    import os
+
+    DATA_DIR = os.path.join(os.path.dirname(__file__), 'data', 'cn', 'daily')
+
+    MARKET_MAP = {
+        'sh_main': {'name': '沪市主板', 'color': '#E74C3C'},
+        'sh_star': {'name': '科创板', 'color': '#9B59B6'},
+        'sz_main': {'name': '深市主板', 'color': '#3498DB'},
+        'sz_sme': {'name': '中小板', 'color': '#27AE60'},
+        'sz_gem': {'name': '创业板', 'color': '#F39C12'}
+    }
+
+    def get_stock_files():
+        files = []
+        stock_list_path = os.path.join(os.path.dirname(__file__), 'data', 'cn', 'stock_list.csv')
+        stock_names = {}
+        if os.path.exists(stock_list_path):
+            df = pd.read_csv(stock_list_path)
+            stock_names = df.set_index('code')['name'].to_dict()
+
+        for market in os.listdir(DATA_DIR):
+            market_path = os.path.join(DATA_DIR, market)
+            if not os.path.isdir(market_path) or market not in MARKET_MAP:
+                continue
+            for f in sorted(os.listdir(market_path)):
+                if f.endswith('.csv'):
+                    code = f.replace('.csv', '')
+                    name = stock_names.get(code, '未知')
+                    files.append({
+                        'code': code,
+                        'name': name,
+                        'market': market,
+                        'file_path': os.path.join(market, f)
+                    })
+        return sorted(files, key=lambda x: x['code'])
+
+    def get_stock_data(file_path):
+        full_path = os.path.join(DATA_DIR, file_path)
+        if not os.path.exists(full_path):
+            return None
+        return pd.read_csv(full_path)
+
+    stocks = get_stock_files()
+
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        stock_options = [f"{s['code']} {s['name']}" for s in stocks]
+        stock_codes = [s['file_path'] for s in stocks]
+        selected = st.selectbox("选择股票", options=stock_options, key="daily_stock_select")
+
+    market_filter = st.selectbox("筛选市场", options=["全部"] + list(MARKET_MAP.keys()), key="market_filter")
+
+    filtered_stocks = stocks
+    if market_filter != "全部":
+        filtered_stocks = [s for s in stocks if s['market'] == market_filter]
+        stock_options = [f"{s['code']} {s['name']}" for s in filtered_stocks]
+        stock_codes = [s['file_path'] for s in filtered_stocks]
+        if stock_options:
+            selected = st.selectbox("选择股票", options=stock_options, key="daily_stock_select_filtered")
+
+    if selected:
+        idx = stock_options.index(selected)
+        file_path = stock_codes[idx]
+        df = get_stock_data(file_path)
+
+        if df is not None:
+            st.success(f"✅ 已加载 {df.shape[0]} 条日线数据")
+
+            col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
+            with col_stats1:
+                latest_close = df['close'].iloc[-1] if 'close' in df.columns else 0
+                st.metric("最新收盘", f"{latest_close:.2f}")
+            with col_stats2:
+                latest_change = df['price_change_pct'].iloc[-1] if 'price_change_pct' in df.columns else 0
+                st.metric("最新涨跌", f"{latest_change:.2f}%")
+            with col_stats3:
+                max_close = df['close'].max() if 'close' in df.columns else 0
+                st.metric("最高收盘", f"{max_close:.2f}")
+            with col_stats4:
+                min_close = df['close'].min() if 'close' in df.columns else 0
+                st.metric("最低收盘", f"{min_close:.2f}")
+
+            st.subheader("📊 最近30条日线数据")
+            display_df = df.tail(30)[['date', 'open', 'high', 'low', 'close', 'volume', 'price_change_pct', 'turnover_rate']].copy()
+            display_df['date'] = pd.to_datetime(display_df['date']).dt.strftime('%Y-%m-%d')
+            display_df['price_change_pct'] = display_df['price_change_pct'].apply(lambda x: f"{x:.2f}%")
+            st.dataframe(display_df, use_container_width=True)
+
+            st.subheader("📈 价格走势图")
+            if 'close' in df.columns and 'date' in df.columns:
+                chart_data = df.tail(100)[['date', 'open', 'high', 'low', 'close']].copy()
+                chart_data['date'] = pd.to_datetime(chart_data['date']).dt.strftime('%Y-%m-%d')
+                st.line_chart(chart_data.set_index('date'))
+
+            st.subheader("📊 成交量")
+            if 'volume' in df.columns and 'date' in df.columns:
+                vol_data = df.tail(100)[['date', 'volume']].copy()
+                vol_data['date'] = pd.to_datetime(vol_data['date']).dt.strftime('%Y-%m-%d')
+                st.bar_chart(vol_data.set_index('date'))
         else:
-            st.warning(f"⚠️ 股票 {stock_code} 本地数据不存在，请先点击上方「开始同步」按钮获取数据")
+            st.error("无法加载数据")
     else:
-        available_stocks = csv_provider.get_stock_list()[:20]
-        if available_stocks:
-            st.info(f"📋 本地已有 {data_status.get('total_stocks', 0)} 只股票数据，可直接输入股票代码查看")
-        else:
-            st.info("💡 请先在上方输入股票代码并点击「开始同步」获取数据")
+        st.info("请从上方选择股票查看日线数据")
