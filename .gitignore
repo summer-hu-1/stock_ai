@@ -29,3 +29,7 @@ Thumbs.db
 # 数据库（保留结构，忽略数据）
 data/*.db
 !data/.gitkeep
+
+# log
+logs/
+log/

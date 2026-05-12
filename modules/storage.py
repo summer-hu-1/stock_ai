@@ -462,20 +462,31 @@ def delete_stock_history(record_id):
     return deleted_rows > 0
 
 
-def get_all_companies():
-    """获取所有公司信息"""
+def get_all_companies(market: str = "cn"):
+    """获取所有公司信息，可按市场筛选
+    
+    Args:
+        market: 市场代码，cn=A股，hk=港股，us=美股
+    """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-
+    
+    if market == "hk":
+        conn.close()
+        return []
+    elif market == "us":
+        conn.close()
+        return []
+    
     cursor.execute("""
     SELECT stock_code, stock_name, industry
     FROM company_info
     ORDER BY stock_code
     """)
-
+    
     rows = cursor.fetchall()
     conn.close()
-
+    
     return [{"code": row[0], "name": row[1], "industry": row[2]} for row in rows]
 
 

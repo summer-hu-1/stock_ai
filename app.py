@@ -18,7 +18,6 @@ if not is_logged_in():
     show_login_page()
 else:
     # 登录后才导入业务模块
-    from agents.controller_agent import multi_agent_review
     from modules.storage import init_db, save_analysis, save_market_sentiment, get_all_companies, save_company_info, get_company_by_code, get_all_stocks, get_stock_history, get_market_sentiment_history, get_cached_market_sentiment
     from deepseek import stock_review, check_balance
     from modules.market_data import get_stock_data, get_stock_data_fast
@@ -120,38 +119,15 @@ else:
     with tab1:
         st.header("⚡ 单Prompt分析（快速）")
 
-        companies = get_company_list()
-        if companies is None:
-            with st.spinner("📊 首次加载，正在获取公司列表..."):
-                load_company_data()
-                companies = get_company_list()
+        # 使用共享组件
+        from ui.components import stock_selector_with_market
 
-        stock_options = [""] + [f"{c['name']} ({c['code']})" for c in companies]
-        stock_code_map = {f"{c['name']} ({c['code']})": c['code'] for c in companies}
-        name_code_map = {c['code']: c['name'] for c in companies}
-
-        col1, col2, col3 = st.columns([3, 1, 1])
-        with col1:
-            selected_stock = st.selectbox(
-                "选择或输入股票",
-                options=stock_options,
-                index=0,
-                format_func=lambda x: x if x else "输入/选择股票...",
-                key="stock_select"
-            )
-            stock = stock_code_map.get(selected_stock, selected_stock if selected_stock else "")
-
-        col_info, col_btn = st.columns([3, 1])
-        with col_info:
-            stock_name = name_code_map.get(stock, "")
-            if stock and stock_name:
-                st.caption(f"📊 {len(companies) if companies else 0} 家公司 | 当前: {stock_name} ({stock})")
-            else:
-                st.caption(f"📊 已加载 {len(companies) if companies else 0} 家公司")
-        with col_btn:
-            if st.button("🔄 更新公司列表", key="refresh_companies", help="点击更新公司列表"):
-                load_company_data()
-                st.rerun()
+        stock, stock_name, market = stock_selector_with_market(
+            key_prefix="single",
+            default_market="cn",
+            show_refresh=True,
+            on_refresh_callback=load_company_data
+        )
 
         col1, col2, col3, col4 = st.columns([3, 1, 1, 2])
         with col1:
@@ -328,18 +304,18 @@ else:
                     )
 
     with tab2:
-        st.header("🧠 多Agent协同分析（完整）")
+        st.header("🧠 统一Pipeline分析（完整）")
 
-        col1, col2 = st.columns([2, 1])
+        # 使用共享组件
+        from ui.components import stock_selector_with_market
 
-        with col1:
-            stock = st.text_input("输入股票代码（如 601360）", placeholder="601360", key="stock_multi")
+        stock, stock_name, market = stock_selector_with_market(
+            key_prefix="multi",
+            default_market="cn",
+            show_refresh=True
+        )
 
-        with col2:
-            st.write("")
-            st.write("")
-
-        if st.button("🚀 启动多Agent分析", key="analyze_multi", type="primary"):
+        if st.button("🚀 启动Pipeline分析", key="analyze_multi", type="primary"):
             # 检查配额
             from auth.auth import can_analyze, record_analysis_usage
             can_do, msg = can_analyze()
@@ -350,142 +326,79 @@ else:
             else:
                 progress_bar = st.progress(0, text="准备开始...")
 
-                progress_bar.progress(10, text="📈 步骤 1/6：正在获取个股数据...")
-                with st.spinner("📈 正在获取个股数据..."):
-                    stock_data = get_stock_data(stock)
+                # 使用统一Pipeline进行分析
+                from core.analysis_pipeline import get_pipeline
+                
+                progress_bar.progress(30, text="🔧 初始化分析管线...")
+                pipeline = get_pipeline()
 
-                progress_bar.progress(25, text="📊 步骤 2/6：正在获取市场情绪数据...")
-                with st.spinner("📊 正在获取市场情绪数据..."):
-                    sentiment_data = get_market_sentiment()
-
-                progress_bar.progress(40, text="🔥 步骤 3/6：正在获取热门板块数据...")
-                with st.spinner("🔥 正在获取热门板块数据..."):
-                    hot_sectors = get_hot_sectors()
-
-                if stock_data:
-                    progress_bar.progress(50, text="✅ 数据获取完成")
-                    with st.expander("📈 个股行情数据", expanded=True):
-                        st.json(stock_data)
-                    with st.expander("📊 市场情绪数据", expanded=True):
-                        st.json(sentiment_data)
-                    with st.expander("🔥 热门概念板块", expanded=True):
-                        try:
-                            if hot_sectors and isinstance(hot_sectors, list):
-                                valid_sectors = []
-                                for sector in hot_sectors:
-                                    if isinstance(sector, dict) and 'name' in sector and 'change_pct' in sector:
-                                        valid_sectors.append(sector)
-                                
-                                if valid_sectors:
-                                    st.markdown("### 🔥 热门概念板块 TOP 10")
-                                    for i, sector in enumerate(valid_sectors[:10], 1):
-                                        change_pct = sector.get('change_pct', 0)
-                                        change_color = "red" if change_pct > 0 else "green"
-                                        change_sign = "+" if change_pct > 0 else ""
-                                        st.markdown(f"{i}. **{sector['name']}**: <span style='color:{change_color};font-weight:bold;'>{change_sign}{change_pct}%</span> (换手 {sector.get('turnover_rate', 0)}%, 涨/跌 {sector.get('rise_count', 0)}/{sector.get('fall_count', 0)})", unsafe_allow_html=True)
-                                else:
-                                    st.info("📦 暂无有效的热门概念数据")
-                            else:
-                                st.info("📦 暂无热门概念数据，使用模拟数据")
-                                from modules.market_sentiment import _get_mock_hot_sectors
-                                mock_sectors = _get_mock_hot_sectors()
-                                st.markdown("### 🔥 热门概念板块 TOP 10（模拟数据）")
-                                for i, sector in enumerate(mock_sectors[:10], 1):
-                                    change_color = "red" if sector['change_pct'] > 0 else "green"
-                                    st.markdown(f"{i}. **{sector['name']}**: <span style='color:{change_color};font-weight:bold;'>+{sector['change_pct']}%</span> (换手 {sector['turnover_rate']}%, 涨/跌 {sector['rise_count']}/{sector['fall_count']})", unsafe_allow_html=True)
-                        except Exception as e:
-                            st.error(f"显示热门板块时出错: {e}")
-                            st.info("📦 暂无热门概念数据")
-
-                progress_bar.progress(55, text="🤖 步骤 4/6：正在协调多个Agent进行市场分析...")
-                with st.spinner("🔄 正在协调多个Agent进行市场分析..."):
-                    result = multi_agent_review(stock)
+                progress_bar.progress(50, text="🚀 执行完整分析流程...")
+                with st.spinner("🔄 正在执行分析..."):
+                    result = pipeline.analyze(stock, market=market)
 
                 # 记录使用次数
                 record_analysis_usage()
 
-                progress_bar.progress(85, text="✅ Agent分析完成")
-                agent_results = result["agent_results"]
-                final_report = result["final_report"]
-                summary = result["summary"]
+                progress_bar.progress(85, text="✅ 分析完成")
 
-                st.session_state.agent_results = agent_results
-                st.session_state.last_stock_code = stock
+                if result.get("success"):
+                    # 保存结果到session
+                    st.session_state.last_stock_code = stock
+                    st.session_state.pipeline_result = result
 
-                progress_bar.progress(90, text="💾 步骤 5/6：正在保存分析结果...")
-                if "error" not in agent_results.get("market", {}):
-                    market_mood = agent_results.get("sentiment", {}).get("market_mood", "")
-                    market_data = agent_results["market"]
-                    market_data_for_save = {
-                        "code": market_data.get("stock_code"),
-                        "name": market_data.get("stock_name"),
-                        "price": market_data.get("price"),
-                        "price_change_pct": market_data.get("price_change_pct"),
-                        "volume": market_data.get("volume"),
-                        "turnover_rate": market_data.get("turnover_rate"),
-                        "amplitude": market_data.get("amplitude")
-                    }
-                    save_analysis(market_data_for_save, final_report, market_mood, "多Agent分析")
+                    progress_bar.progress(95, text="💾 保存分析结果...")
+                    
+                    progress_bar.progress(100, text="✅ 分析完成！")
+                    st.balloons()
+                    st.success("✅ Pipeline分析完成！")
 
-                progress_bar.progress(100, text="✅ 分析完成！")
-                st.balloons()
-                st.success("✅ 多Agent分析完成！")
+                    # 显示综合评分
+                    with st.expander("📋 分析摘要", expanded=True):
+                        cols = st.columns(4)
+                        with cols[0]:
+                            st.metric("综合评分", f"{result['score']}/100")
+                        with cols[1]:
+                            st.metric("风险等级", result.get("risk_level", "中"))
+                        with cols[2]:
+                            st.metric("信号", result.get("signal", "观望"))
+                        with cols[3]:
+                            st.metric("耗时", f"{result.get('elapsed_time', 0):.2f}秒")
 
-                with st.expander("📋 快速摘要", expanded=True):
-                    cols = st.columns(3)
-                    with cols[0]:
-                        st.metric("股票", summary["股票"])
-                        st.metric("情绪周期", summary["情绪周期"])
-                    with cols[1]:
-                        st.metric("市场情绪", summary["市场情绪"])
-                        st.metric("主线", summary["主线"])
-                    with cols[2]:
-                        st.metric("风险等级", summary["风险等级"])
-                        st.metric("短线操作", summary["短线可做"])
+                    # 显示因子分析结果
+                    with st.expander("📊 因子分析", expanded=False):
+                        if result.get("factors"):
+                            st.json(result["factors"])
+                        else:
+                            st.info("暂无因子数据")
 
-                    st.info(f"操作建议：{summary['操作建议']}")
+                    # 显示信号分析结果
+                    with st.expander("📡 信号分析", expanded=False):
+                        if result.get("signals"):
+                            st.json(result["signals"])
+                        else:
+                            st.info("暂无信号数据")
 
-                st.subheader("🎯 AI综合分析报告")
-                st.markdown(final_report)
+                    # 显示龙头识别结果
+                    with st.expander("🐉 龙头识别", expanded=False):
+                        if result.get("leaders"):
+                            is_leader = result["leaders"].get("is_leader", False)
+                            st.markdown(f"**是否龙头**: {'👑 是龙头股' if is_leader else '普通股票'}")
+                            st.json(result["leaders"])
+                        else:
+                            st.info("暂无龙头数据")
 
-                st.download_button(
-                    label="📥 下载完整报告",
-                    data=f"""
-{'='*50}
-股票：{summary['股票']}
-分析时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-{'='*50}
-
-【快速摘要】
-情绪周期：{summary['情绪周期']}
-市场情绪：{summary['市场情绪']}
-主线：{summary['主线']}
-风险等级：{summary['风险等级']}
-操作建议：{summary['操作建议']}
-
-{'='*50}
-【Agent详情】
-{'='*50}
-
-{agent_results['format']['market']}
-
-{agent_results['format']['sentiment']}
-
-{agent_results['format']['sector']}
-
-{agent_results['format']['flow']}
-
-{agent_results['format']['risk']}
-
-{'='*50}
-【AI综合分析报告】
-{'='*50}
-
-{final_report}
-""",
-                    file_name=f"多Agent复盘报告_{stock}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                    mime="text/plain"
-                )
+                    # 显示Agent分析结果
+                    if result.get("agent") and result["agent"].get("success"):
+                        st.subheader("🎯 AI综合分析报告")
+                        agent_data = result["agent"].get("data", {})
+                        if isinstance(agent_data, dict):
+                            st.markdown(agent_data.get("final_report", "暂无报告"))
+                        else:
+                            st.markdown(str(agent_data))
+                    else:
+                        st.info("Agent分析未完成")
+                else:
+                    st.error(f"分析失败: {result.get('error', '未知错误')}")
 
     with tab3:
         st.header("📊 各Agent分析详情")

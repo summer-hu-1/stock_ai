@@ -50,6 +50,16 @@
 - **移除模拟数据**：取消所有模拟数据生成功能
 - **本地数据利用**：充分利用已保存的大量历史数据记录
 
+### V8.7.1 统一分析管线 + 系统内核化
+> **核心升级**：从「Streamlit项目」转变为「分析引擎」，实现业务逻辑与UI分离
+- **AnalysisPipeline**：统一分析总线，全系统唯一分析入口
+  - 数据加载 → 因子计算 → 信号生成 → 龙头识别 → 市场记忆 → Agent分析 → 综合评分
+- **Dataclass化**：结构化数据模型替代字典，提升代码可维护性
+- **统一日志系统**：全局logging配置，自动生成日志文件
+- **共享UI组件**：Tab1和Tab2共用股票选择器（市场选择 + 刷新按钮）
+- **系统内核化**：支持不启动UI直接运行分析（`python test_pipeline.py`）
+- **数据获取策略**：本地CSV优先，网络获取兜底
+
 ---
 
 ## � 完整系统架构
@@ -151,6 +161,14 @@ stock_ai/
 │   ├── data_service.py         # DataService 统一数据服务入口
 │   ├── csv_provider.py         # CSVProvider 本地日线数据访问
 │   ├── cache.py                # Cache 缓存层（内存+SQLite）
+│   ├── logging_config.py       # 统一日志配置（V8.7.1新增）
+│   ├── analysis_pipeline.py    # 统一分析管线（V8.7.1新增）
+│   ├── models/                 # 数据模型（V8.7.1新增）
+│   │   ├── __init__.py
+│   │   ├── factor_result.py    # 因子结果模型
+│   │   ├── signal_result.py    # 信号结果模型
+│   │   ├── leader_result.py    # 龙头结果模型
+│   │   └── analysis_result.py  # 分析结果模型
 │   └── market_memory/          # 市场记忆系统（V8.6新增）
 │       ├── __init__.py
 │       ├── models.py           # 数据模型（MarketSnapshot/MarketTrend/MarketInsight）
@@ -224,6 +242,9 @@ stock_ai/
 │   ├── auth.py                 # 认证核心逻辑（登录/注册/权限检查）
 │   └── pages.py                # 登录/注册页面组件
 │
+├── ui/                         # UI组件（V8.7.1新增）
+│   └── components.py           # 共享UI组件（股票选择器、市场选择器）
+│
 ├── admin/                      # 管理员后台（V8.7新增）
 │   └── dashboard.py            # 管理员仪表盘（用户管理/分析记录/操作日志）
 │
@@ -241,6 +262,7 @@ stock_ai/
 ├── scripts/                     # 工具脚本
 │   └── init_stocks.py          # 初始化股票列表
 │
+├── test_pipeline.py             # Pipeline测试脚本（V8.7.1新增）
 ├── auto_snapshot.py             # 自动化快照定时任务脚本（V8.6新增）
 ├── service_manager.py           # 服务管理器（启动/停止/状态/开机自启）（V8.6新增）
 │
@@ -302,14 +324,12 @@ date,open,high,low,close,volume,amount,amplitude,price_change_pct,turnover_rate
 - AI分析结果（Markdown格式）
 - 报告下载功能
 
-### Tab 2: 🧠 多Agent分析（完整）
-- **市场选择**：A股/港股/美股
-- **股票搜索**：下拉选择 + 手动输入
-- **真实数据展示**：个股行情、市场情绪、热门板块
-- 5个Agent协同分析流程
-- 快速摘要面板
-- AI综合报告（更深度分析）
-- 完整报告下载
+### Tab 2: 🧠 统一Pipeline分析（完整）
+- **市场选择**：A股/港股/美股（与Tab1共用组件）
+- **股票搜索**：下拉选择 + 手动输入（与Tab1共用组件）
+- **统一分析管线**：数据加载 → 因子计算 → 信号生成 → 龙头识别 → 市场记忆 → Agent分析 → 综合评分
+- **分析结果展示**：综合评分、风险等级、信号、各模块详细结果
+- AI综合报告（深度分析）
 
 ### Tab 3: 📊 各Agent详情
 - 行情Agent详细输出（含评分）
@@ -462,6 +482,11 @@ DEEPSEEK_API_KEY=your_api_key_here
 | ✅ 用户认证系统 | 登录/注册、密码哈希、会话管理 | 已实现 |
 | ✅ 会员等级体系 | free/pro/vip三级会员 | 已实现 |
 | ✅ 管理员后台 | 用户管理、分析记录、操作日志 | 已实现 |
+| ✅ 统一分析管线 | AnalysisPipeline统一入口 | 已实现 |
+| ✅ Dataclass化 | 结构化数据模型替代字典 | 已实现 |
+| ✅ 统一日志系统 | 全局logging配置 | 已实现 |
+| ✅ 共享UI组件 | Tab1/Tab2共用股票选择器 | 已实现 |
+| ✅ 系统内核化 | 支持不启动UI直接分析 | 已实现 |
 | ✅ 每日分析限制 | 基于会员等级的分析次数限制 | 已实现 |
 
 ---
