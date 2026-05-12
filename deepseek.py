@@ -15,6 +15,7 @@ _balance_cache = None
 _balance_cache_time = None
 _balance_cache_ttl = 300
 
+
 def check_balance(force_refresh=False):
     global _balance_cache, _balance_cache_time
     
@@ -30,8 +31,11 @@ def check_balance(force_refresh=False):
         return result
     
     try:
+        from core.model_config import get_current_model
+        current_model = get_current_model()
+        
         response = client.chat.completions.create(
-            model="deepseek-chat",
+            model=current_model,
             messages=[{"role": "user", "content": "Hello"}],
             max_tokens=1
         )
@@ -50,6 +54,7 @@ def check_balance(force_refresh=False):
         _balance_cache = result
         _balance_cache_time = time.time()
         return result
+
 
 def stock_review(stock_code, stock_data, market_sentiment=None, hot_sectors=None):
     today = datetime.now()
@@ -148,8 +153,11 @@ def stock_review(stock_code, stock_data, market_sentiment=None, hot_sectors=None
 - 最终给出明确操作建议
 """
 
+    from core.model_config import get_current_model
+    current_model = get_current_model()
+
     response = client.chat.completions.create(
-        model="deepseek-chat",
+        model=current_model,
         messages=[
             {
                 "role": "user",

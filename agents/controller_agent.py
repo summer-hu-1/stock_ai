@@ -186,8 +186,11 @@ def generate_report(all_data, context: MarketContext):
 """
 
     try:
+        from core.model_config import get_current_model
+        current_model = get_current_model()
+        
         response = client.chat.completions.create(
-            model="deepseek-chat",
+            model=current_model,
             messages=[
                 {
                     "role": "user",

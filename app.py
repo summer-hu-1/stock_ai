@@ -47,6 +47,54 @@ def get_company_list():
 st.set_page_config(page_title="AI股票复盘系统 V6", page_icon="🧠", layout="wide")
 st.title("🧠 AI股票复盘系统（多Agent架构版）")
 
+# 模型选择区域
+from core.model_config import (
+    get_all_models, 
+    get_current_model, 
+    set_current_model, 
+    format_price_info,
+    get_model_display_name,
+    get_model_description
+)
+
+col_model, col_api_check = st.columns([3, 1])
+
+with col_model:
+    models = get_all_models()
+    current_model = get_current_model()
+    
+    # 创建模型选项（显示名称 + 描述）
+    model_options = {f"{m['display_name']} - {m['description']}": m["name"] for m in models}
+    
+    selected_model_display = next(k for k, v in model_options.items() if v == current_model)
+    
+    selected_model = st.selectbox(
+        "🤖 选择AI模型",
+        options=list(model_options.keys()),
+        index=list(model_options.values()).index(current_model),
+        key="model_selector"
+    )
+    
+    # 获取选中模型的配置
+    selected_model_name = model_options[selected_model]
+    selected_model_config = next(m for m in models if m["name"] == selected_model_name)
+    
+    # 如果选择了新模型，更新配置
+    if selected_model_name != current_model:
+        if set_current_model(selected_model_name):
+            st.success(f"✅ 已切换到 {selected_model_config['display_name']}")
+            st.rerun()
+    
+    # 显示价格信息
+    st.caption(f"{format_price_info(selected_model_config)} | Max Tokens: {selected_model_config['max_tokens']}")
+
+with col_api_check:
+    api_status = check_balance()
+    if api_status[0]:
+        st.success("✅ API正常")
+    else:
+        st.error(f"❌ {api_status[1]}")
+
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠 多Agent分析（完整）", "📊 各Agent详情", "📈 历史记录", "📅 情绪周期", "📈 日线数据"])
 
 with tab1:

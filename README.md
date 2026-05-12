@@ -40,6 +40,16 @@
 - **自动化快照生成**：每天下午3:30自动生成市场快照
 - **UI升级**：Tab5新增市场记忆展示和趋势图表
 
+### V8.6.1 真实数据优先策略
+> **核心升级**：确保拉取的市场信息均为真实数据，不使用模拟数据
+- **统一API降级策略**：本地数据库优先，多级数据获取机制
+  - 优先级1：本地 `market_sentiment` 表（真实历史情绪数据）
+  - 优先级2：本地 `market_snapshots` 表（真实市场快照）
+  - 优先级3：akshare API（降级方案）
+- **HistoricalSnapshotFetcher**：历史快照拉取器，支持按日期范围获取
+- **移除模拟数据**：取消所有模拟数据生成功能
+- **本地数据利用**：充分利用已保存的大量历史数据记录
+
 ---
 
 ## � 完整系统架构
@@ -308,6 +318,7 @@ date,open,high,low,close,volume,amount,amplitude,price_change_pct,turnover_rate
 - 当前市场情绪状态
 - 一键保存情绪记录
 - 历史情绪记录查询
+- **历史快照拉取**：支持按日期范围获取历史市场数据（优先从本地数据库获取真实数据）
 
 ### Tab 6: 📊 A股日线数据中心
 - **数据目录结构**：按市场板块分组存储（sh_main/sh_star/sz_main/sz_sme/sz_gem）
@@ -872,5 +883,76 @@ leader = {
 
 ---
 
-*系统版本：V8.6 市场记忆系统*
+## 📥 历史快照拉取器使用说明
+
+### 功能概述
+`HistoricalSnapshotFetcher` 提供按日期范围获取历史市场数据的能力，**优先从本地数据库获取真实数据**，确保数据的真实性和可靠性。
+
+### API降级策略（优先级从高到低）
+
+| 优先级 | 数据源 | 说明 |
+|--------|--------|------|
+| 1 | `market_sentiment` 表 | 本地真实历史情绪数据 |
+| 2 | `market_snapshots` 表 | 本地真实市场快照 |
+| 3 | `akshare` API | 降级方案（多种API尝试） |
+
+### 使用方法
+
+#### 通过Python代码
+```python
+from core.market_memory import MarketMemory
+
+memory = MarketMemory()
+
+# 拉取指定日期范围的真实数据
+result = memory.fetch_date_range("2026-05-01", "2026-05-10")
+print(f"成功: {result['success']}, 失败: {result['failed']}")
+
+# 增量更新最近30天
+result = memory.update_missing_snapshots(days=30)
+print(f"缺失: {result['total_missing']}, 成功: {result['success']}")
+```
+
+#### 通过命令行
+```bash
+# 单日期拉取
+python3 core/market_memory/historical_fetcher.py fetch --date 2026-05-08
+
+# 日期范围拉取
+python3 core/market_memory/historical_fetcher.py range --start-date 2026-05-01 --end-date 2026-05-10
+
+# 增量更新最近30天
+python3 core/market_memory/historical_fetcher.py update --days 30
+```
+
+#### 通过Tab5界面
+进入 **Tab5: 情绪周期**，滚动到底部找到「📥 历史快照拉取」模块：
+- 选择日期范围
+- 点击「拉取」按钮获取真实历史数据
+
+### 验证示例
+```python
+from core.market_memory import HistoricalSnapshotFetcher
+
+fetcher = HistoricalSnapshotFetcher()
+data = fetcher.fetch_historical_market_data('2026-05-08')
+if data:
+    print(f"✅ 获取成功!")
+    print(f"   上涨家数: {data.get('rising_count')}")
+    print(f"   下跌家数: {data.get('falling_count')}")
+    print(f"   涨停家数: {data.get('limit_up_count')}")
+    print(f"   跌停家数: {data.get('limit_down_count')}")
+    print(f"   上涨比例: {data.get('rise_ratio')}%")
+```
+
+### 关键特性
+- **真实数据优先**：优先从本地数据库获取，不使用模拟数据
+- **多级降级**：本地数据不可用时自动尝试akshare API
+- **日期范围支持**：支持按日期范围批量拉取历史数据
+- **增量更新**：自动识别缺失日期，只拉取需要的数据
+- **周末跳过**：自动跳过非交易日（周六、周日）
+
+---
+
+*系统版本：V8.6.1 真实数据优先策略*
 *最后更新：2026-05-12*
