@@ -9,20 +9,26 @@ sys.path.insert(0, os.path.dirname(__file__))
 from database.db import init_db
 init_db()
 
-# 检测 Cloud 环境并初始化默认用户
-from database.db import is_streamlit_cloud, get_db, get_user_count, create_user
-if is_streamlit_cloud():
+# 初始化默认用户（如果不存在）
+from database.db import get_db, get_user_count, create_user
+try:
     db = next(get_db())
-    if get_user_count(db) == 0:
+    user_count = get_user_count(db)
+    st.sidebar.write(f"**调试信息**: 用户数={user_count}")
+    if user_count == 0:
+        import bcrypt
         try:
-            import bcrypt
             admin_username = st.secrets.get('ADMIN_USERNAME', 'admin')
             admin_password = st.secrets.get('ADMIN_PASSWORD', '123456')
-            password_hash = bcrypt.hashpw(admin_password.encode(), bcrypt.gensalt()).decode()
-            create_user(db, admin_username, password_hash, 'admin@stockai.com', '管理员')
-            db.close()
-        except Exception as e:
-            pass
+        except:
+            admin_username = 'admin'
+            admin_password = '123456'
+        password_hash = bcrypt.hashpw(admin_password.encode(), bcrypt.gensalt()).decode()
+        create_user(db, admin_username, password_hash, 'admin@stockai.com', '管理员')
+        st.sidebar.success(f"✅ 已创建默认用户: {admin_username}")
+    db.close()
+except Exception as e:
+    st.sidebar.error(f"初始化用户失败: {e}")
 
 # 先检查登录状态
 from auth.auth import is_logged_in, get_user_quota_info
@@ -39,8 +45,6 @@ else:
     from modules.market_sentiment import get_market_sentiment, get_hot_sectors, analyze_sentiment
 
     init_db()
-
-
     def load_company_data():
         """从 akshare 加载全量公司信息到数据库"""
         import akshare as ak
@@ -938,3 +942,4 @@ else:
         show_admin_dashboard()
         if st.sidebar.button("🏠 返回主应用"):
             go_back()
+
