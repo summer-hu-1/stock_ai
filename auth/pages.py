@@ -43,15 +43,6 @@ def show_login_page():
                         else:
                             st.error(message)
         
-        # 测试账户提示
-        with st.expander("📌 测试账户"):
-            st.markdown("""
-            | 用户名 | 密码 | 角色 |
-            |--------|------|------|
-            | admin | 123456 | 管理员 |
-            | testuser | 123456 | 普通用户 |
-            """)
-    
     with tab2:
         st.header("📝 用户注册")
         

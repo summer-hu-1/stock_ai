@@ -71,7 +71,7 @@ def show_dashboard():
                 "角色": u.role,
                 "会员": u.membership,
                 "状态": "✅ 活跃" if u.is_active else "❌ 封禁",
-                "注册时间": u.created_at.strftime("%Y-%m-%d %H:%M")
+                "注册时间": u.created_at.strftime("%Y-%m-%d %H:%M") if u.created_at else "-"
             })
         st.dataframe(data, use_container_width=True)
     else:
@@ -116,7 +116,7 @@ def show_user_management():
                 st.write(f"**会员**: {user.membership}")
             
             with col2:
-                st.write(f"**注册时间**: {user.created_at.strftime('%Y-%m-%d %H:%M')}")
+                st.write(f"**注册时间**: {user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-'}")
                 st.write(f"**上次登录**: {user.last_login.strftime('%Y-%m-%d %H:%M') if user.last_login else '-'}")
                 st.write(f"**今日分析**: {user.today_used} / {user.daily_limit} 次")
             
@@ -180,7 +180,7 @@ def show_analysis_records():
             "分析类型": record.analysis_type,
             "模型": record.model_name,
             "Token消耗": record.token_used,
-            "时间": record.created_at.strftime("%Y-%m-%d %H:%M")
+            "时间": record.created_at.strftime("%Y-%m-%d %H:%M") if record.created_at else "-"
         })
     
     st.dataframe(data, use_container_width=True)
@@ -214,7 +214,7 @@ def show_operation_logs():
             "股票代码": log.stock_code or "-",
             "模型": log.model_used or "-",
             "Token消耗": log.token_used,
-            "时间": log.created_at.strftime("%Y-%m-%d %H:%M")
+            "时间": log.created_at.strftime("%Y-%m-%d %H:%M") if log.created_at else "-"
         })
     
     st.dataframe(data, use_container_width=True)
