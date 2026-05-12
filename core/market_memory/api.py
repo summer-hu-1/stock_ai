@@ -1,6 +1,8 @@
 from .engine import MarketStateEngine
 from .snapshot_generator import MarketSnapshotGenerator
 from .models import MarketSnapshot, MarketTrend, MarketInsight
+from .insight_engine import MarketInsightEngine
+from .historical_fetcher import HistoricalSnapshotFetcher
 from typing import Dict, Optional, List
 
 
@@ -11,9 +13,11 @@ class MarketMemory:
     提供便捷的接口来访问市场历史数据和趋势分析
     """
     
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_path: str = None, llm_client=None):
         self.engine = MarketStateEngine(db_path)
         self.generator = MarketSnapshotGenerator(self.engine)
+        self.insight_engine = MarketInsightEngine(db_path, llm_client)
+        self.historical_fetcher = HistoricalSnapshotFetcher(db_path)
     
     def create_snapshot(self, sentiment_data: Dict) -> Optional[MarketSnapshot]:
         """
@@ -216,3 +220,136 @@ class MarketMemory:
         ]
         
         return "\n".join(lines)
+    
+    def load_history_context(self, days: int = 5) -> Dict:
+        """
+        加载历史上下文（用于AI洞察生成）
+        
+        Args:
+            days: 加载天数
+        
+        Returns:
+            Dict: 历史上下文
+        """
+        return self.insight_engine.load_history_context(days)
+    
+    def build_market_story(self, days: int = 5) -> str:
+        """
+        构建市场故事
+        
+        Args:
+            days: 分析天数
+        
+        Returns:
+            str: 市场故事
+        """
+        return self.insight_engine.build_market_story(days)
+    
+    def build_llm_prompt(self, days: int = 5) -> str:
+        """
+        构建LLM提示词
+        
+        Args:
+            days: 分析天数
+        
+        Returns:
+            str: LLM提示词
+        """
+        return self.insight_engine.build_llm_prompt(days)
+    
+    def generate_market_insight(self, days: int = 5) -> MarketInsight:
+        """
+        生成市场洞察
+        
+        Args:
+            days: 分析天数
+        
+        Returns:
+            MarketInsight: 市场洞察对象
+        """
+        return self.insight_engine.generate_market_insight(days)
+    
+    def save_insight(self, insight: MarketInsight) -> bool:
+        """
+        保存市场洞察
+        
+        Args:
+            insight: 市场洞察对象
+        
+        Returns:
+            bool: 是否成功
+        """
+        return self.insight_engine.save_insight(insight)
+    
+    def get_latest_insight(self) -> Optional[MarketInsight]:
+        """
+        获取最新的市场洞察
+        
+        Returns:
+            MarketInsight: 最新的市场洞察
+        """
+        return self.insight_engine.get_latest_insight()
+    
+    def get_recent_insights(self, days: int = 30) -> List[MarketInsight]:
+        """
+        获取最近N天的市场洞察
+        
+        Args:
+            days: 天数
+        
+        Returns:
+            List[MarketInsight]: 市场洞察列表
+        """
+        return self.insight_engine.get_recent_insights(days)
+    
+    # ========== 历史快照拉取 API ==========
+    
+    def fetch_historical_snapshot(self, date: str) -> bool:
+        """
+        拉取指定日期的历史市场快照
+        
+        Args:
+            date: 日期（YYYY-MM-DD格式）
+        
+        Returns:
+            bool: 是否成功
+        """
+        return self.historical_fetcher.fetch_and_save_snapshot(date)
+    
+    def fetch_date_range(self, start_date: str, end_date: str) -> Dict:
+        """
+        拉取指定日期范围的市场快照
+        
+        Args:
+            start_date: 开始日期（YYYY-MM-DD格式）
+            end_date: 结束日期（YYYY-MM-DD格式）
+        
+        Returns:
+            Dict: 拉取结果统计
+        """
+        return self.historical_fetcher.fetch_date_range(start_date, end_date)
+    
+    def get_missing_dates(self, start_date: str, end_date: str) -> List[str]:
+        """
+        获取指定日期范围内缺失的日期
+        
+        Args:
+            start_date: 开始日期（YYYY-MM-DD格式）
+            end_date: 结束日期（YYYY-MM-DD格式）
+        
+        Returns:
+            List[str]: 缺失的日期列表
+        """
+        return self.historical_fetcher.get_missing_dates(start_date, end_date)
+    
+    def update_missing_snapshots(self, days: int = 30) -> Dict:
+        """
+        增量更新最近N天缺失的快照
+        
+        Args:
+            days: 天数（默认30天）
+        
+        Returns:
+            Dict: 更新结果统计
+        """
+        return self.historical_fetcher.update_missing_snapshots(days)

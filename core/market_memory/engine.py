@@ -439,6 +439,59 @@ class MarketStateEngine:
         
         return snapshots
     
+    def get_snapshot_by_date(self, date: str) -> Optional[MarketSnapshot]:
+        """根据日期获取市场快照"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+        SELECT date, timestamp, market_sentiment, emotion_score,
+               limit_up_count, limit_down_count, highest_board,
+               rising_count, falling_count, flat_count, rise_ratio,
+               total_volume, volume_trend, north_money, north_money_trend,
+               bomb_rate, risk_level, top_sectors, hot_theme,
+               leaders, dragon_rotation, rotation_from, rotation_to,
+               market_cycle, cycle_stage, index_change, raw_data
+        FROM market_snapshots
+        WHERE date = ?
+        """, (date,))
+        
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            import json
+            return MarketSnapshot(
+                date=row[0],
+                timestamp=row[1],
+                market_sentiment=row[2],
+                emotion_score=row[3],
+                limit_up_count=row[4],
+                limit_down_count=row[5],
+                highest_board=row[6],
+                rising_count=row[7],
+                falling_count=row[8],
+                flat_count=row[9],
+                rise_ratio=row[10],
+                total_volume=row[11],
+                volume_trend=row[12],
+                north_money=row[13],
+                north_money_trend=row[14],
+                bomb_rate=row[15],
+                risk_level=row[16],
+                top_sectors=json.loads(row[17]) if row[17] else [],
+                hot_theme=row[18],
+                leaders=json.loads(row[19]) if row[19] else [],
+                dragon_rotation=bool(row[20]),
+                rotation_from=row[21],
+                rotation_to=row[22],
+                market_cycle=row[23],
+                cycle_stage=row[24],
+                index_change=json.loads(row[25]) if row[25] else {},
+                raw_data=json.loads(row[26]) if row[26] else None
+            )
+        return None
+    
     def generate_market_trend(self, days: int = 7) -> MarketTrend:
         """生成市场趋势分析"""
         snapshots = self.get_recent_snapshots(days)

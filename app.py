@@ -1,7 +1,7 @@
 import streamlit as st
 import sys
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -647,8 +647,108 @@ with tab5:
                 st.line_chart(chart_df.set_index("日期")[["涨停家数"]])
         else:
             st.info("📊 历史数据不足，需要至少2天的市场快照才能生成趋势图表")
+
+    st.divider()
+    st.subheader("🤖 AI市场洞察")
+
+    col_insight_days, col_generate = st.columns([1, 1])
+    with col_insight_days:
+        insight_days = st.selectbox("分析天数", options=[3, 5, 7, 10], index=1, key="insight_days")
+    with col_generate:
+        if st.button("🧠 生成AI洞察", key="generate_insight"):
+            with st.spinner("🤖 AI正在分析市场..."):
+                insight = memory.generate_market_insight(days=insight_days)
+                memory.save_insight(insight)
+                st.success("✅ AI洞察已生成并保存")
+                st.rerun()
+
+    latest_insight = memory.get_latest_insight()
+    if latest_insight:
+        col_state, col_confidence = st.columns([3, 1])
+        with col_state:
+            st.info(f"**📊 市场状态**：{latest_insight.current_state}")
+            st.caption(latest_insight.state_description)
+        with col_confidence:
+            confidence_color = "🟢" if latest_insight.confidence > 0.8 else "🟡" if latest_insight.confidence > 0.6 else "🔴"
+            st.metric(f"{confidence_color} 置信度", f"{latest_insight.confidence*100:.0f}%")
+
+        col_trend, col_risk = st.columns(2)
+        with col_trend:
+            with st.expander("📈 趋势分析", expanded=True):
+                st.markdown(latest_insight.trend_analysis)
+
+        with col_risk:
+            with st.expander("⚠️ 风险提示", expanded=True):
+                st.warning(latest_insight.risk_alert)
+
+        col_opp, col_action = st.columns(2)
+        with col_opp:
+            with st.expander("💡 机会提示", expanded=True):
+                st.success(latest_insight.opportunity)
+
+        with col_action:
+            with st.expander("🎯 操作建议", expanded=True):
+                st.info(latest_insight.action_suggestion)
+
+        if latest_insight.key_changes:
+            with st.expander("🔑 关键观察点"):
+                for change in latest_insight.key_changes:
+                    st.markdown(f"- {change}")
+
+        st.divider()
+        st.subheader("📜 历史洞察记录")
+
+        recent_insights = memory.get_recent_insights(10)
+        if recent_insights:
+            for insight in recent_insights:
+                with st.expander(f"📅 {insight.date} - {insight.current_state}"):
+                    cols = st.columns(3)
+                    with cols[0]:
+                        st.metric("市场状态", insight.current_state)
+                        st.metric("置信度", f"{insight.confidence*100:.0f}%")
+                    with cols[1]:
+                        st.caption("**风险提示**")
+                        st.warning(insight.risk_alert)
+                    with cols[2]:
+                        st.caption("**操作建议**")
+                        st.info(insight.action_suggestion)
+        else:
+            st.info("📊 暂无历史洞察记录")
+    
+    st.divider()
+    st.subheader("📥 历史快照拉取")
+    
+    col_start, col_end, col_fetch = st.columns([2, 2, 1])
+    with col_start:
+        start_date = st.date_input("开始日期", value=datetime.now() - timedelta(days=7), key="history_start")
+    with col_end:
+        end_date = st.date_input("结束日期", value=datetime.now(), key="history_end")
+    with col_fetch:
+        if st.button("🚀 拉取历史快照", key="fetch_history"):
+            if start_date > end_date:
+                st.error("❌ 开始日期不能大于结束日期")
+            else:
+                with st.spinner(f"⏳ 正在拉取 {start_date} 到 {end_date} 的快照..."):
+                    result = memory.fetch_date_range(start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+                    st.success(f"✅ 拉取完成！成功: {result['success']} | 失败: {result['failed']} | 跳过: {result['skipped']}")
+    
+    col_update_days, col_update = st.columns([2, 1])
+    with col_update_days:
+        update_days = st.selectbox("增量更新最近N天", options=[7, 14, 30, 60], index=2, key="update_days")
+    with col_update:
+        if st.button("🔄 增量更新快照", key="update_snapshots"):
+            with st.spinner(f"⏳ 正在增量更新最近 {update_days} 天的快照..."):
+                result = memory.update_missing_snapshots(days=update_days)
+                st.success(f"✅ 更新完成！缺失: {result['total_missing']} | 成功: {result['success']} | 失败: {result['failed']}")
+    
+    # 显示当前已有的快照日期范围
+    snapshots = memory.get_recent_snapshots(365)
+    if snapshots:
+        earliest_date = snapshots[-1].date
+        latest_date = snapshots[0].date
+        st.info(f"📊 当前已有快照: {len(snapshots)} 天（{earliest_date} 至 {latest_date}）")
     else:
-        st.info("📊 暂无市场记忆数据，请点击「生成市场快照」按钮开始记录市场状态")
+        st.info("📊 当前暂无快照数据")
 
 with tab6:
     st.header("📈 A股日线数据")
