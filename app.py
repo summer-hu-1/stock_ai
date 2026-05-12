@@ -10,11 +10,28 @@ from database.db import init_db
 init_db()
 
 # 初始化默认用户（如果不存在）
-from database.db import get_db, get_user_count, create_user
+from database.db import get_db, get_user_count, create_user, get_all_users, toggle_user_active
 try:
     db = next(get_db())
     user_count = get_user_count(db)
-    st.sidebar.write(f"**调试信息**: 用户数={user_count}")
+
+    # 检查是否需要强制重置
+    force_reset = False
+    try:
+        if st.secrets.get('IS_RESET_DB', '').lower() == 'true':
+            force_reset = True
+    except:
+        pass
+
+    if force_reset:
+        # 删除所有现有用户
+        all_users = get_all_users(db)
+        for u in all_users:
+            db.delete(u)
+        db.commit()
+        user_count = 0
+        st.sidebar.warning("⚠️ 已重置所有用户")
+
     if user_count == 0:
         import bcrypt
         try:
@@ -25,7 +42,8 @@ try:
             admin_password = '123456'
         password_hash = bcrypt.hashpw(admin_password.encode(), bcrypt.gensalt()).decode()
         create_user(db, admin_username, password_hash, 'admin@stockai.com', '管理员')
-        st.sidebar.success(f"✅ 已创建默认用户: {admin_username}")
+        st.sidebar.success(f"✅ 已创建默认管理员: {admin_username}")
+
     db.close()
 except Exception as e:
     st.sidebar.error(f"初始化用户失败: {e}")
