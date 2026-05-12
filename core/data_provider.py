@@ -81,6 +81,18 @@ class DataProvider:
             if market_type == "A":
                 hot_stocks = DataProvider._get_hot_stocks()
 
+            # 8. 获取市场记忆上下文（仅A股支持）
+            market_memory_context = None
+            if market_type == "A":
+                try:
+                    from core.market_memory import MarketMemory
+                    memory = MarketMemory()
+                    market_memory_context = memory.get_market_context(days=5)
+                    if market_memory_context.get("has_context"):
+                        print(f"✅ 已加载市场记忆上下文（最近{market_memory_context['days']}天）")
+                except Exception as e:
+                    print(f"⚠️  获取市场记忆上下文失败: {e}")
+
             # 构建上下文
             context = MarketContext(
                 stock_code=stock_code,
@@ -91,6 +103,7 @@ class DataProvider:
                 market_volume=market_volume,
                 risk_level=risk_level,
                 hot_stocks=hot_stocks,
+                market_memory_context=market_memory_context,
             )
 
             # 缓存

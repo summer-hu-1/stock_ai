@@ -163,7 +163,7 @@ class SentimentAgent:
         return max(0, min(100, score))
 
     @staticmethod
-    def format_report(result):
+    def format_report(result, context: MarketContext = None):
         """格式化情绪报告"""
         if not result.get("data"):
             return f"情绪分析失败: {result.get('reason', ['未知错误'])[0]}"
@@ -190,6 +190,35 @@ class SentimentAgent:
             f"整体判断: {data['sentiment_summary']}",
             f"操作建议: {long_signal_text}",
         ]
+
+        # 如果有市场记忆上下文，增加历史趋势展示
+        if context and context.has_market_memory():
+            lines.append(f"")
+            lines.append(f"📊 【历史趋势（最近5天）】")
+            lines.append(f"━━━━━━━━━━━━━━━━━━━━")
+            
+            # 市场周期
+            market_cycle = context.get_market_cycle()
+            lines.append(f"市场周期：{market_cycle}")
+            
+            # 情绪趋势
+            emotion_trend = context.get_emotion_trend()
+            lines.append(f"情绪趋势：{emotion_trend}")
+            
+            # 板块轮动
+            sector_rotation = context.get_sector_rotation()
+            if sector_rotation != "未知":
+                lines.append(f"板块轮动：{sector_rotation}")
+            
+            # 龙头切换
+            leader_rotation = context.get_leader_rotation()
+            if leader_rotation != "未知":
+                lines.append(f"龙头切换：{leader_rotation}")
+            
+            # 风险变化
+            risk_change = context.get_risk_change()
+            if risk_change != "未知":
+                lines.append(f"风险变化：{risk_change}")
 
         lines.append(f"\n📈 综合评分: {result['score']}/100  |  信号: {result['signal']}  |  风险: {result['risk']}")
 

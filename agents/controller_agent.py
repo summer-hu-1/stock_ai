@@ -49,7 +49,7 @@ def run_all_agents(context: MarketContext):
         "risk": risk_result,
         "format": {
             "market": MarketAgent.format_report(market_result),
-            "sentiment": SentimentAgent.format_report(sentiment_result),
+            "sentiment": SentimentAgent.format_report(sentiment_result, context),
             "sector": SectorAgent.format_report(sector_result),
             "flow": FlowAgent.format_report(flow_result),
             "risk": RiskAgent.format_report(risk_result)
@@ -109,6 +109,24 @@ def generate_report(all_data, context: MarketContext):
     flow_data = flow_result.get("data", {})
     risk_data = risk_result.get("data", {})
 
+    # 添加市场记忆上下文
+    market_memory_info = ""
+    if context.has_market_memory():
+        market_cycle = context.get_market_cycle()
+        emotion_trend = context.get_emotion_trend()
+        sector_rotation = context.get_sector_rotation()
+        leader_rotation = context.get_leader_rotation()
+        risk_change = context.get_risk_change()
+        
+        market_memory_info = f"""
+【市场历史趋势（最近5天）】
+市场周期：{market_cycle}
+情绪趋势：{emotion_trend}
+板块轮动：{sector_rotation}
+龙头切换：{leader_rotation}
+风险变化：{risk_change}
+"""
+
     prompt = f"""你是A股顶级游资复盘分析师，擅长多维度市场分析。
 
 【时间信息】
@@ -142,6 +160,8 @@ def generate_report(all_data, context: MarketContext):
 风险提示：{risk_data.get('warning', '未知')}
 操作建议：{risk_data.get('suggestion', '未知')}
 短线可操作性：{'可以' if risk_data.get('can_trade_short') else '谨慎' if risk_data.get('can_trade_short') is False else '观察'}
+
+{market_memory_info}
 
 【各Agent评分】
 行情评分：{market_result.get('score', 0)}/100 | 信号：{market_result.get('signal', '未知')}

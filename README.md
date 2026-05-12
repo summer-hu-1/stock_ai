@@ -20,7 +20,7 @@
 - **统一Agent输出**：score/signal/risk/reason 标准格式
 - **新增功能**：模拟数据模式、网络检测、历史记录删除
 
-### V7.0 多市场路由 + 本地日线数据中心（当前版本）
+### V7.0 多市场路由 + 本地日线数据中心
 > **核心升级**：从「单市场」到「多市场数据路由」，同时建立「本地数据底座」
 - **多市场支持**：A股、港股、美股自动路由
 - **Market Registry**：市场配置注册表
@@ -29,6 +29,16 @@
 - **本地A股日线数据中心**：自动拉取3年日线、CSV永久存储、增量更新
 - **CSV Provider**：统一本地数据访问接口
 - **新增功能**：网络检测优化、友好错误提示
+
+### V8.6 市场记忆系统（当前版本）
+> **核心升级**：从「单日分析」到「市场叙事分析」，赋予系统「时间记忆能力」
+- **Market Memory Layer**：市场记忆层架构
+- **MarketStateEngine**：核心大脑（分析市场周期、情绪趋势、板块轮动、龙头切换）
+- **MarketSnapshotGenerator**：每日市场快照生成器
+- **历史趋势分析**：支持最近N天市场状态、情绪变化、龙头切换分析
+- **时间序列推理**：从单点数据升级为趋势分析（如：涨停家数 32→45→61→78）
+- **自动化快照生成**：每天下午3:30自动生成市场快照
+- **UI升级**：Tab5新增市场记忆展示和趋势图表
 
 ---
 
@@ -130,7 +140,13 @@ stock_ai/
 │   ├── symbol_resolver.py      # SymbolResolver 股票解析器
 │   ├── data_service.py         # DataService 统一数据服务入口
 │   ├── csv_provider.py         # CSVProvider 本地日线数据访问
-│   └── cache.py                # Cache 缓存层（内存+SQLite）
+│   ├── cache.py                # Cache 缓存层（内存+SQLite）
+│   └── market_memory/          # 市场记忆系统（V8.6新增）
+│       ├── __init__.py
+│       ├── models.py           # 数据模型（MarketSnapshot/MarketTrend/MarketInsight）
+│       ├── engine.py           # MarketStateEngine 核心大脑
+│       ├── snapshot_generator.py # 市场快照生成器
+│       └── api.py              # 统一API接口
 │
 ├── factors/                     # V8 因子系统（新）
 │   ├── __init__.py
@@ -204,6 +220,9 @@ stock_ai/
 │
 ├── scripts/                     # 工具脚本
 │   └── init_stocks.py          # 初始化股票列表
+│
+├── auto_snapshot.py             # 自动化快照定时任务脚本（V8.6新增）
+├── service_manager.py           # 服务管理器（启动/停止/状态/开机自启）（V8.6新增）
 │
 ├── deepseek.py                 # DeepSeek API封装
 ├── .env                        # 环境变量（API密钥）
@@ -416,6 +435,96 @@ DEEPSEEK_API_KEY=your_api_key_here
 | ✅ 增量更新功能 | Tab6按日期增量更新数据 | 已实现 |
 | ✅ 热门概念板块 | 美化显示+模拟数据兜底 | 已实现 |
 | ✅ 市场板块分组 | 数据按sh_main/sh_star等分组 | 已实现 |
+| ✅ 市场记忆系统 | 市场快照、历史趋势分析、时间序列推理 | 已实现 |
+| ✅ 自动化快照生成 | 每天下午3:30自动生成市场快照 | 已实现 |
+| ✅ 趋势图表展示 | 情绪得分、涨停家数折线图 | 已实现 |
+
+---
+
+## 🧠 市场记忆系统（V8.6）
+
+### 核心架构
+
+```
+每日收盘
+    ↓
+生成市场快照
+    ↓
+存入历史数据库 (SQLite)
+    ↓
+下一次分析时读取
+    ↓
+AI结合历史上下文分析
+```
+
+### 市场快照结构
+
+```json
+{
+    "date": "2026-05-12",
+    "market_sentiment": "高潮",
+    "emotion_score": 82,
+    "top_sectors": ["机器人", "AI", "军工"],
+    "leaders": ["XXX", "YYY"],
+    "highest_board": 6,
+    "limit_up_count": 78,
+    "limit_down_count": 3,
+    "volume": "放量",
+    "north_money": "+52亿",
+    "risk_level": "中",
+    "hot_theme": "机器人",
+    "dragon_rotation": true,
+    "market_cycle": "主升期"
+}
+```
+
+### MarketStateEngine 核心能力
+
+| 方法 | 功能 | 输出 |
+|------|------|------|
+| `analyze_market_cycle()` | 分析市场周期 | 冰点/修复/高潮/分歧/退潮 |
+| `analyze_emotion_trend()` | 分析情绪趋势 | 上升/下降/震荡 |
+| `analyze_sector_rotation()` | 分析板块轮动 | 板块切换描述 |
+| `analyze_leader_rotation()` | 分析龙头切换 | 龙头变化描述 |
+| `analyze_risk_change()` | 分析风险变化 | 风险等级变化 |
+
+### 时间序列推理示例
+
+**普通系统：**
+```text
+今天涨停70家
+```
+
+**高级系统（市场记忆）：**
+```text
+涨停家数：32 → 45 → 61 → 78
+
+连续4天提升
+
+说明：
+情绪持续加强
+资金风险偏好提升
+市场进入主升周期
+```
+
+### 自动化快照服务
+
+**服务管理命令：**
+
+| 命令 | 说明 |
+|------|------|
+| `python3 auto_snapshot.py --run-now` | 立即执行一次快照生成 |
+| `python3 auto_snapshot.py --start-service` | 启动定时服务（前台） |
+| `python3 auto_snapshot.py --show-log` | 查看日志 |
+| `python3 service_manager.py start` | 启动服务（后台） |
+| `python3 service_manager.py stop` | 停止服务 |
+| `python3 service_manager.py status` | 查看服务状态 |
+| `python3 service_manager.py enable` | 设置开机自启 |
+| `python3 service_manager.py disable` | 移除开机自启 |
+
+**定时任务配置：**
+- **执行时间**：每天下午 15:30（A股收盘后）
+- **日志文件**：`logs/auto_snapshot.log`
 
 ---
 
@@ -763,5 +872,5 @@ leader = {
 
 ---
 
-*系统版本：V8.5 API Fallback + 全量数据中心*
+*系统版本：V8.6 市场记忆系统*
 *最后更新：2026-05-12*

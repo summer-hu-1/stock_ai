@@ -506,12 +506,13 @@ with tab5:
     st.header("📅 市场情绪周期")
     from modules.storage import get_market_sentiment_history, save_market_sentiment, get_cached_market_sentiment
     from modules.market_sentiment import analyze_sentiment
+    from core.market_memory import MarketMemory
 
     @st.cache_data(ttl=300)
     def cached_get_sentiment_history():
         return get_market_sentiment_history()
 
-    col_refresh, col_save = st.columns([1, 1])
+    col_refresh, col_save, col_snapshot = st.columns([1, 1, 1])
     with col_refresh:
         if st.button("🔄 刷新情绪数据"):
             st.rerun()
@@ -521,6 +522,16 @@ with tab5:
             sentiment = analyze_sentiment()
             save_market_sentiment(sentiment)
             st.success("✅ 情绪数据已保存")
+
+    with col_snapshot:
+        if st.button("📸 生成市场快照"):
+            sentiment = analyze_sentiment()
+            memory = MarketMemory()
+            success = memory.save_snapshot(sentiment)
+            if success:
+                st.success("✅ 市场快照已保存")
+            else:
+                st.error("❌ 市场快照保存失败")
 
     cached_sentiment = get_cached_market_sentiment()
     if cached_sentiment:
@@ -570,6 +581,74 @@ with tab5:
                 with cols[2]:
                     st.metric("强势股", record['strong_count'])
                     st.metric("弱势股", record['weak_count'])
+
+    st.divider()
+    st.subheader("🧠 市场记忆 - 历史趋势分析")
+
+    memory = MarketMemory()
+    context = memory.get_market_context(days=5)
+
+    if context.get("has_context"):
+        col_cycle, col_emotion = st.columns(2)
+        with col_cycle:
+            st.info(f"**📊 市场周期**：{context['market_cycle']['cycle']}（{context['market_cycle']['stage']}）")
+            st.caption(context['market_cycle']['description'])
+
+        with col_emotion:
+            trend_emoji = {
+                "上升": "📈",
+                "下降": "📉",
+                "震荡": "⚡"
+            }.get(context['emotion_trend']['direction'], "❓")
+            st.info(f"**{trend_emoji} 情绪趋势**：{context['emotion_trend']['direction']}")
+            st.caption(context['emotion_trend']['description'])
+
+        col_sector, col_leader = st.columns(2)
+        with col_sector:
+            st.info(f"**🔄 板块轮动**")
+            st.caption(context['sector_rotation']['description'])
+
+        with col_leader:
+            st.info(f"**🐉 龙头切换**")
+            st.caption(context['leader_rotation']['description'])
+
+        col_risk = st.columns(1)
+        with col_risk[0]:
+            risk_emoji = {
+                "上升": "⚠️",
+                "下降": "✅",
+                "稳定": "➖"
+            }.get(context['risk_change']['trend'], "❓")
+            st.info(f"**{risk_emoji} 风险变化**：{context['risk_change']['trend']}")
+            st.caption(context['risk_change']['description'])
+
+        st.divider()
+        st.subheader("📈 趋势图表")
+
+        snapshots = memory.get_recent_snapshots(10)
+        if len(snapshots) >= 2:
+            import pandas as pd
+
+            dates = [s.date for s in reversed(snapshots)]
+            emotion_scores = [s.emotion_score for s in reversed(snapshots)]
+            limit_ups = [s.limit_up_count for s in reversed(snapshots)]
+
+            chart_df = pd.DataFrame({
+                "日期": dates,
+                "情绪得分": emotion_scores,
+                "涨停家数": limit_ups
+            })
+
+            col_chart1, col_chart2 = st.columns(2)
+            with col_chart1:
+                st.line_chart(chart_df.set_index("日期")[["情绪得分"]])
+
+            with col_chart2:
+                st.line_chart(chart_df.set_index("日期")[["涨停家数"]])
+        else:
+            st.info("📊 历史数据不足，需要至少2天的市场快照才能生成趋势图表")
+    else:
+        st.info("📊 暂无市场记忆数据，请点击「生成市场快照」按钮开始记录市场状态")
 
 with tab6:
     st.header("📈 A股日线数据")
