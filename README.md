@@ -428,6 +428,41 @@ df = CSVProvider().get_stock_daily("000002")
 
 ## 🚀 启动方式
 
+### 本地开发
+```bash
+cd stock_ai
+python3 -m streamlit run app.py --server.headless=true
+```
+
+访问：**http://localhost:8501**
+
+### Streamlit Cloud 部署
+
+**1. 配置 Secrets**
+
+在 Streamlit Cloud 的 `Advanced settings` → `Secrets` 中配置：
+
+```toml
+# DeepSeek API Key（必需）
+DEEPSEEK_API_KEY = "sk-38b8056ff6bb44f6b6847be48b598c88"
+
+# 管理员账号（可选，用于初始化）
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "123456"
+```
+
+**2. 部署注意事项**
+
+| 项目 | 说明 |
+|------|------|
+| **数据库** | Streamlit Cloud 使用内存数据库，部署后会重置 |
+| **数据文件** | 股票日线数据（`data/cn/daily/`）不会上传，Cloud 环境下会通过网络获取 |
+| **认证** | 用户注册功能正常可用，但数据不会持久化 |
+
+---
+
+## 🚀 启动方式
+
 ```bash
 cd stock_ai
 python3 -m streamlit run app.py --server.headless=true
@@ -536,7 +571,15 @@ python3 -m streamlit run app.py --server.headless=true
 
 访问：**http://localhost:8501**
 
-**首次使用**：使用注册功能创建账户，或联系管理员获取测试账户。
+**首次使用**：运行初始化脚本创建管理员账户：
+
+```bash
+# 初始化认证数据库（创建默认管理员 admin/123456）
+python scripts/init_auth.py
+
+# 启动应用
+python -m streamlit run app.py
+```
 
 ---
 

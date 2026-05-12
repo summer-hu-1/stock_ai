@@ -4,12 +4,21 @@ from dotenv import load_dotenv
 from datetime import datetime
 import time
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
-client = OpenAI(
-    api_key=os.getenv("DEEPSEEK_API_KEY"),
-    base_url="https://api.deepseek.com"
-)
+_client = None
+
+def get_client():
+    global _client
+    if _client is None:
+        api_key = os.getenv("DEEPSEEK_API_KEY")
+        if not api_key:
+            raise ValueError("未配置 API Key，请在 .env 文件中设置 DEEPSEEK_API_KEY")
+        _client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.deepseek.com"
+        )
+    return _client
 
 _balance_cache = None
 _balance_cache_time = None
@@ -18,22 +27,23 @@ _balance_cache_ttl = 300
 
 def check_balance(force_refresh=False):
     global _balance_cache, _balance_cache_time
-    
+
     if not force_refresh and _balance_cache is not None and _balance_cache_time is not None:
         if time.time() - _balance_cache_time < _balance_cache_ttl:
             return _balance_cache
-    
+
     api_key = os.getenv("DEEPSEEK_API_KEY")
     if not api_key:
         result = (False, "未配置 API Key，请在 .env 文件中设置 DEEPSEEK_API_KEY")
         _balance_cache = result
         _balance_cache_time = time.time()
         return result
-    
+
     try:
+        client = get_client()
         from core.model_config import get_current_model
         current_model = get_current_model()
-        
+
         response = client.chat.completions.create(
             model=current_model,
             messages=[{"role": "user", "content": "Hello"}],
@@ -153,6 +163,7 @@ def stock_review(stock_code, stock_data, market_sentiment=None, hot_sectors=None
 - 最终给出明确操作建议
 """
 
+    client = get_client()
     from core.model_config import get_current_model
     current_model = get_current_model()
 
