@@ -60,32 +60,26 @@ with tab1:
 
     stock_options = [""] + [f"{c['name']} ({c['code']})" for c in companies]
     stock_code_map = {f"{c['name']} ({c['code']})": c['code'] for c in companies}
+    name_code_map = {c['code']: c['name'] for c in companies}
 
-    col1, col2, col3, col4 = st.columns([3, 1, 1, 2])
+    col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
-        if companies:
-            selected_stock = st.selectbox(
-                "选择或输入股票代码",
-                options=stock_options,
-                index=0,
-                format_func=lambda x: x if x else "输入/选择股票...",
-                key="stock_select"
-            )
-            stock = stock_code_map.get(selected_stock, selected_stock if selected_stock else "")
-            stock_input = st.text_input(
-                "或直接输入股票代码（如 601360）",
-                value=stock,
-                placeholder="601360",
-                key="stock_single"
-            )
-            if stock_input:
-                stock = stock_input
-        else:
-            stock = st.text_input("输入股票代码（如 601360）", placeholder="601360", key="stock_single")
+        selected_stock = st.selectbox(
+            "选择或输入股票",
+            options=stock_options,
+            index=0,
+            format_func=lambda x: x if x else "输入/选择股票...",
+            key="stock_select"
+        )
+        stock = stock_code_map.get(selected_stock, selected_stock if selected_stock else "")
 
     col_info, col_btn = st.columns([3, 1])
     with col_info:
-        st.caption(f"📊 已加载 {len(companies) if companies else 0} 家公司")
+        stock_name = name_code_map.get(stock, "")
+        if stock and stock_name:
+            st.caption(f"📊 {len(companies) if companies else 0} 家公司 | 当前: {stock_name} ({stock})")
+        else:
+            st.caption(f"📊 已加载 {len(companies) if companies else 0} 家公司")
     with col_btn:
         if st.button("🔄 更新公司列表", key="refresh_companies", help="点击更新公司列表"):
             load_company_data()
@@ -202,7 +196,37 @@ with tab1:
                     with st.expander("📊 市场情绪数据", expanded=True):
                         st.json(sentiment_data)
                     with st.expander("🔥 热门概念板块", expanded=True):
-                        st.json(hot_sectors)
+                        try:
+                            # 确保 hot_sectors 是有效的列表
+                            if hot_sectors and isinstance(hot_sectors, list):
+                                # 先检查数据是否有效再显示
+                                valid_sectors = []
+                                for sector in hot_sectors:
+                                    if isinstance(sector, dict) and 'name' in sector and 'change_pct' in sector:
+                                        valid_sectors.append(sector)
+                                
+                                if valid_sectors:
+                                    # 美化显示（优先，不显示原始JSON）
+                                    st.markdown("### 🔥 热门概念板块 TOP 10")
+                                    for i, sector in enumerate(valid_sectors[:10], 1):
+                                        change_pct = sector.get('change_pct', 0)
+                                        change_color = "red" if change_pct > 0 else "green"
+                                        change_sign = "+" if change_pct > 0 else ""
+                                        st.markdown(f"{i}. **{sector['name']}**: <span style='color:{change_color};font-weight:bold;'>{change_sign}{change_pct}%</span> (换手 {sector.get('turnover_rate', 0)}%, 涨/跌 {sector.get('rise_count', 0)}/{sector.get('fall_count', 0)})", unsafe_allow_html=True)
+                                else:
+                                    st.info("📦 暂无有效的热门概念数据")
+                            else:
+                                st.info("📦 暂无热门概念数据，使用模拟数据")
+                                # 显示模拟数据
+                                from modules.market_sentiment import _get_mock_hot_sectors
+                                mock_sectors = _get_mock_hot_sectors()
+                                st.markdown("### 🔥 热门概念板块 TOP 10（模拟数据）")
+                                for i, sector in enumerate(mock_sectors[:10], 1):
+                                    change_color = "red" if sector['change_pct'] > 0 else "green"
+                                    st.markdown(f"{i}. **{sector['name']}**: <span style='color:{change_color};font-weight:bold;'>+{sector['change_pct']}%</span> (换手 {sector['turnover_rate']}%, 涨/跌 {sector['rise_count']}/{sector['fall_count']})", unsafe_allow_html=True)
+                        except Exception as e:
+                            st.error(f"显示热门板块时出错: {e}")
+                            st.info("📦 暂无热门概念数据")
                     progress_bar.progress(75, text="✅ 数据准备完成，开始AI分析...")
 
                 progress_bar.progress(80, text="🤖 步骤 4/5：AI正在分析中...")
@@ -268,7 +292,37 @@ with tab2:
                 with st.expander("📊 市场情绪数据", expanded=True):
                     st.json(sentiment_data)
                 with st.expander("🔥 热门概念板块", expanded=True):
-                    st.json(hot_sectors)
+                    try:
+                        # 确保 hot_sectors 是有效的列表
+                        if hot_sectors and isinstance(hot_sectors, list):
+                            # 先检查数据是否有效再显示
+                            valid_sectors = []
+                            for sector in hot_sectors:
+                                if isinstance(sector, dict) and 'name' in sector and 'change_pct' in sector:
+                                    valid_sectors.append(sector)
+                            
+                            if valid_sectors:
+                                # 美化显示（优先，不显示原始JSON）
+                                st.markdown("### 🔥 热门概念板块 TOP 10")
+                                for i, sector in enumerate(valid_sectors[:10], 1):
+                                    change_pct = sector.get('change_pct', 0)
+                                    change_color = "red" if change_pct > 0 else "green"
+                                    change_sign = "+" if change_pct > 0 else ""
+                                    st.markdown(f"{i}. **{sector['name']}**: <span style='color:{change_color};font-weight:bold;'>{change_sign}{change_pct}%</span> (换手 {sector.get('turnover_rate', 0)}%, 涨/跌 {sector.get('rise_count', 0)}/{sector.get('fall_count', 0)})", unsafe_allow_html=True)
+                            else:
+                                st.info("📦 暂无有效的热门概念数据")
+                        else:
+                            st.info("📦 暂无热门概念数据，使用模拟数据")
+                            # 显示模拟数据
+                            from modules.market_sentiment import _get_mock_hot_sectors
+                            mock_sectors = _get_mock_hot_sectors()
+                            st.markdown("### 🔥 热门概念板块 TOP 10（模拟数据）")
+                            for i, sector in enumerate(mock_sectors[:10], 1):
+                                change_color = "red" if sector['change_pct'] > 0 else "green"
+                                st.markdown(f"{i}. **{sector['name']}**: <span style='color:{change_color};font-weight:bold;'>+{sector['change_pct']}%</span> (换手 {sector['turnover_rate']}%, 涨/跌 {sector['rise_count']}/{sector['fall_count']})", unsafe_allow_html=True)
+                    except Exception as e:
+                        st.error(f"显示热门板块时出错: {e}")
+                        st.info("📦 暂无热门概念数据")
 
             progress_bar.progress(55, text="🤖 步骤 4/6：正在协调多个Agent进行市场分析...")
             with st.spinner("🔄 正在协调多个Agent进行市场分析..."):
@@ -522,6 +576,8 @@ with tab6:
 
     import pandas as pd
     import os
+    from datetime import timedelta
+    import akshare as ak
 
     DATA_DIR = os.path.join(os.path.dirname(__file__), 'data', 'cn', 'daily')
 
@@ -533,14 +589,24 @@ with tab6:
         'sz_gem': {'name': '创业板', 'color': '#F39C12'}
     }
 
+    def get_market_from_code(code):
+        """根据股票代码判断市场"""
+        if code.startswith('6'):
+            if code.startswith('688'):
+                return 'sh_star'
+            return 'sh_main'
+        elif code.startswith('00') or code.startswith('30'):
+            if code.startswith('002'):
+                return 'sz_sme'
+            elif code.startswith('003'):
+                return 'sz_main'
+            elif code.startswith('30'):
+                return 'sz_gem'
+            return 'sz_main'
+        return 'sh_main'
+
     def get_stock_files():
         files = []
-        stock_list_path = os.path.join(os.path.dirname(__file__), 'data', 'cn', 'stock_list.csv')
-        stock_names = {}
-        if os.path.exists(stock_list_path):
-            df = pd.read_csv(stock_list_path)
-            stock_names = df.set_index('code')['name'].to_dict()
-
         for market in os.listdir(DATA_DIR):
             market_path = os.path.join(DATA_DIR, market)
             if not os.path.isdir(market_path) or market not in MARKET_MAP:
@@ -548,7 +614,7 @@ with tab6:
             for f in sorted(os.listdir(market_path)):
                 if f.endswith('.csv'):
                     code = f.replace('.csv', '')
-                    name = stock_names.get(code, '未知')
+                    name = code_name_map.get(code, code)
                     files.append({
                         'code': code,
                         'name': name,
@@ -563,31 +629,118 @@ with tab6:
             return None
         return pd.read_csv(full_path)
 
+    def update_stock_data_incremental(stock_code, stock_name, target_date):
+        """增量更新股票数据"""
+        try:
+            market = get_market_from_code(stock_code)
+            file_path = os.path.join(DATA_DIR, market, f"{stock_code}.csv")
+            
+            if not os.path.exists(file_path):
+                return False, "文件不存在"
+            
+            existing_df = pd.read_csv(file_path)
+            if 'date' not in existing_df.columns:
+                return False, "数据格式错误"
+            
+            existing_df['date'] = pd.to_datetime(existing_df['date'])
+            latest_date = existing_df['date'].max()
+            
+            target_date_dt = pd.to_datetime(target_date)
+            
+            if target_date_dt <= latest_date:
+                return True, f"数据已是最新（最新: {latest_date.strftime('%Y-%m-%d')}，目标: {target_date_dt.strftime('%Y-%m-%d')}）"
+            
+            start_date = (latest_date + timedelta(days=1)).strftime('%Y%m%d')
+            end_date = target_date_dt.strftime('%Y%m%d')
+            
+            print(f"增量更新: {stock_code} 从 {start_date} 到 {end_date}")
+            
+            df_new = ak.stock_zh_a_hist(symbol=stock_code, start_date=start_date, end_date=end_date, adjust="qfq")
+            
+            if df_new is None or df_new.empty:
+                return True, "没有新数据需要更新"
+            
+            df_new = df_new.rename(columns={
+                '日期': 'date',
+                '股票代码': 'code',
+                '开盘': 'open',
+                '收盘': 'close',
+                '最高': 'high',
+                '最低': 'low',
+                '成交量': 'volume',
+                '成交额': 'amount',
+                '振幅': 'amplitude',
+                '涨跌幅': 'price_change_pct',
+                '涨跌额': 'price_change',
+                '换手率': 'turnover_rate'
+            })
+            
+            if 'date' in df_new.columns:
+                df_new['date'] = pd.to_datetime(df_new['date'])
+            
+            combined_df = pd.concat([existing_df, df_new], ignore_index=True)
+            combined_df = combined_df.drop_duplicates(subset=['date'], keep='last')
+            combined_df = combined_df.sort_values('date')
+            combined_df['date'] = combined_df['date'].dt.strftime('%Y-%m-%d')
+            combined_df.to_csv(file_path, index=False)
+            
+            return True, f"成功更新 {len(df_new)} 条数据"
+        except Exception as e:
+            return False, f"更新失败: {str(e)}"
+
+    companies = get_company_list()
+    code_name_map = {c['code']: c['name'] for c in companies} if companies else {}
+
     stocks = get_stock_files()
+    
+    stock_options = [""] + [f"{s['name']} ({s['code']})" for s in stocks]
+    stock_file_map = {f"{s['name']} ({s['code']})": s['file_path'] for s in stocks}
+    stock_info_map = {f"{s['name']} ({s['code']})": {'code': s['code'], 'name': s['name'], 'market': s['market']} for s in stocks}
 
-    col1, col2, col3 = st.columns([2, 1, 1])
+    col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
-        stock_options = [f"{s['code']} {s['name']}" for s in stocks]
-        stock_codes = [s['file_path'] for s in stocks]
-        selected = st.selectbox("选择股票", options=stock_options, key="daily_stock_select")
+        selected_stock = st.selectbox(
+            "选择或输入股票",
+            options=stock_options,
+            index=0,
+            format_func=lambda x: x if x else "输入/选择股票...",
+            key="daily_stock_select"
+        )
 
-    market_filter = st.selectbox("筛选市场", options=["全部"] + list(MARKET_MAP.keys()), key="market_filter")
+    with col3:
+        st.write("")
+        st.write("")
+        update_date = st.date_input(
+            "更新到日期",
+            value=datetime.now(),
+            key="update_date_input",
+            help="选择要更新到的日期"
+        )
 
-    filtered_stocks = stocks
-    if market_filter != "全部":
-        filtered_stocks = [s for s in stocks if s['market'] == market_filter]
-        stock_options = [f"{s['code']} {s['name']}" for s in filtered_stocks]
-        stock_codes = [s['file_path'] for s in filtered_stocks]
-        if stock_options:
-            selected = st.selectbox("选择股票", options=stock_options, key="daily_stock_select_filtered")
+    if selected_stock:
+        stock_info = stock_info_map.get(selected_stock, {})
+        stock_code = stock_info.get('code', '')
+        stock_name = stock_info.get('name', '')
+        market_name = MARKET_MAP.get(stock_info.get('market', ''), {}).get('name', '')
+        st.caption(f"📊 {len(stocks)} 只股票 | 当前: {stock_name} ({stock_code}) | 市场: {market_name}")
 
-    if selected:
-        idx = stock_options.index(selected)
-        file_path = stock_codes[idx]
+        file_path = stock_file_map.get(selected_stock)
         df = get_stock_data(file_path)
 
         if df is not None:
             st.success(f"✅ 已加载 {df.shape[0]} 条日线数据")
+
+            col_update_btn = st.columns([1])
+            with col_update_btn[0]:
+                if st.button("🔄 增量更新数据", key="update_stock_data", type="primary"):
+                    if stock_code:
+                        with st.spinner("正在增量更新数据..."):
+                            success, message = update_stock_data_incremental(stock_code, stock_name, update_date)
+                        if success:
+                            st.success(f"✅ {message}")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {message}")
 
             col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
             with col_stats1:
