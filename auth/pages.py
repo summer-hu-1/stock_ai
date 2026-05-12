@@ -11,6 +11,22 @@ def show_login_page():
     """显示登录页面"""
     st.set_page_config(page_title="AI股票复盘系统 - 登录", page_icon="🔐", layout="centered")
     
+    # 调试信息
+    with st.expander("🔍 调试信息", expanded=False):
+        from database.db import is_streamlit_cloud, get_db, get_all_users, get_user_count
+        st.write(f"**Streamlit Cloud 环境**: {is_streamlit_cloud()}")
+        
+        db = next(get_db())
+        user_count = get_user_count(db)
+        st.write(f"**数据库用户数**: {user_count}")
+        
+        if user_count > 0:
+            all_users = get_all_users(db)
+            st.write("**所有用户列表**:")
+            for user in all_users:
+                st.write(f"- {user.username} ({user.email}) - role={user.role} - active={user.is_active}")
+        db.close()
+    
     # 创建标签页
     tab1, tab2 = st.tabs(["🔐 登录", "📝 注册"])
     
@@ -41,8 +57,8 @@ def show_login_page():
                             st.success(message)
                             st.rerun()
                         else:
-                            st.error(message)
-        
+                            st.error(f"登录失败: {message}")
+    
     with tab2:
         st.header("📝 用户注册")
         
@@ -68,7 +84,7 @@ def show_login_page():
                             st.success(message)
                             st.info("注册成功，请返回登录页面登录")
                         else:
-                            st.error(message)
+                            st.error(f"注册失败: {message}")
 
 
 def show_user_info():
