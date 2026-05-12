@@ -589,6 +589,10 @@ with tab6:
         'sz_gem': {'name': '创业板', 'color': '#F39C12'}
     }
 
+    from data_sync.data_sync_manager import DataSyncManager
+
+    sync_manager = DataSyncManager(data_dir=DATA_DIR)
+
     def get_market_from_code(code):
         """根据股票代码判断市场"""
         if code.startswith('6'):
@@ -629,76 +633,20 @@ with tab6:
             return None
         return pd.read_csv(full_path)
 
-    def update_stock_data_incremental(stock_code, stock_name, target_date):
-        """增量更新股票数据"""
-        try:
-            market = get_market_from_code(stock_code)
-            file_path = os.path.join(DATA_DIR, market, f"{stock_code}.csv")
-            
-            if not os.path.exists(file_path):
-                return False, "文件不存在"
-            
-            existing_df = pd.read_csv(file_path)
-            if 'date' not in existing_df.columns:
-                return False, "数据格式错误"
-            
-            existing_df['date'] = pd.to_datetime(existing_df['date'])
-            latest_date = existing_df['date'].max()
-            
-            target_date_dt = pd.to_datetime(target_date)
-            
-            if target_date_dt <= latest_date:
-                return True, f"数据已是最新（最新: {latest_date.strftime('%Y-%m-%d')}，目标: {target_date_dt.strftime('%Y-%m-%d')}）"
-            
-            start_date = (latest_date + timedelta(days=1)).strftime('%Y%m%d')
-            end_date = target_date_dt.strftime('%Y%m%d')
-            
-            print(f"增量更新: {stock_code} 从 {start_date} 到 {end_date}")
-            
-            df_new = ak.stock_zh_a_hist(symbol=stock_code, start_date=start_date, end_date=end_date, adjust="qfq")
-            
-            if df_new is None or df_new.empty:
-                return True, "没有新数据需要更新"
-            
-            df_new = df_new.rename(columns={
-                '日期': 'date',
-                '股票代码': 'code',
-                '开盘': 'open',
-                '收盘': 'close',
-                '最高': 'high',
-                '最低': 'low',
-                '成交量': 'volume',
-                '成交额': 'amount',
-                '振幅': 'amplitude',
-                '涨跌幅': 'price_change_pct',
-                '涨跌额': 'price_change',
-                '换手率': 'turnover_rate'
-            })
-            
-            if 'date' in df_new.columns:
-                df_new['date'] = pd.to_datetime(df_new['date'])
-            
-            combined_df = pd.concat([existing_df, df_new], ignore_index=True)
-            combined_df = combined_df.drop_duplicates(subset=['date'], keep='last')
-            combined_df = combined_df.sort_values('date')
-            combined_df['date'] = combined_df['date'].dt.strftime('%Y-%m-%d')
-            combined_df.to_csv(file_path, index=False)
-            
-            return True, f"成功更新 {len(df_new)} 条数据"
-        except Exception as e:
-            return False, f"更新失败: {str(e)}"
-
     companies = get_company_list()
     code_name_map = {c['code']: c['name'] for c in companies} if companies else {}
 
     stocks = get_stock_files()
+
+    existing_count = sync_manager.get_existing_stocks_count()
+    total_stocks = len(stocks)
     
     stock_options = [""] + [f"{s['name']} ({s['code']})" for s in stocks]
     stock_file_map = {f"{s['name']} ({s['code']})": s['file_path'] for s in stocks}
     stock_info_map = {f"{s['name']} ({s['code']})": {'code': s['code'], 'name': s['name'], 'market': s['market']} for s in stocks}
 
-    col1, col2, col3 = st.columns([3, 1, 1])
-    with col1:
+    col_header1, col_header2, col_header3 = st.columns([2, 1, 1])
+    with col_header1:
         selected_stock = st.selectbox(
             "选择或输入股票",
             options=stock_options,
@@ -706,41 +654,68 @@ with tab6:
             format_func=lambda x: x if x else "输入/选择股票...",
             key="daily_stock_select"
         )
-
-    with col3:
+    with col_header2:
         st.write("")
         st.write("")
         update_date = st.date_input(
-            "更新到日期",
+            "增量更新到",
             value=datetime.now(),
             key="update_date_input",
-            help="选择要更新到的日期"
+            help="选择增量更新的目标日期"
         )
+    with col_header3:
+        st.write("")
+        st.write("")
+        st.write("")
+
+    col_status, col_full_btn, col_update_btn = st.columns([2, 1, 1])
+    with col_status:
+        st.caption(f"📊 已有 {existing_count} 只股票数据 | 共 {total_stocks} 只")
+
+    with col_update_btn:
+        st.write("")
+        if selected_stock and st.button("🔄 增量更新当前股", key="update_current_stock", type="primary"):
+            stock_info = stock_info_map.get(selected_stock, {})
+            stock_code = stock_info.get('code', '')
+            if stock_code:
+                with st.spinner("正在增量更新..."):
+                    success, message, count = sync_manager.update_stock_incremental(stock_code, update_date.strftime('%Y-%m-%d'))
+                if success:
+                    st.success(f"✅ {message}")
+                    st.rerun()
+                else:
+                    st.error(f"❌ {message}")
+
+    with col_full_btn:
+        st.write("")
+        if st.button("📥 全量更新所有股", key="full_sync_all", help="从2023-01-13开始同步所有股票"):
+            with st.spinner("全量同步中，请稍候..."):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                def progress_callback(current, total, message):
+                    progress_bar.progress(current / total)
+                    status_text.text(message)
+                
+                result = sync_manager.sync_all_full(progress_callback=progress_callback)
+                
+                progress_bar.empty()
+                status_text.empty()
+                st.success(f"✅ 全量同步完成！成功: {result['success']} 只，失败: {result['failed']} 只")
+                st.rerun()
 
     if selected_stock:
         stock_info = stock_info_map.get(selected_stock, {})
         stock_code = stock_info.get('code', '')
         stock_name = stock_info.get('name', '')
         market_name = MARKET_MAP.get(stock_info.get('market', ''), {}).get('name', '')
-        st.caption(f"📊 {len(stocks)} 只股票 | 当前: {stock_name} ({stock_code}) | 市场: {market_name}")
+        st.caption(f"📊 当前: {stock_name} ({stock_code}) | 市场: {market_name}")
 
         file_path = stock_file_map.get(selected_stock)
         df = get_stock_data(file_path)
 
         if df is not None:
             st.success(f"✅ 已加载 {df.shape[0]} 条日线数据")
-
-            col_update_btn = st.columns([1])
-            with col_update_btn[0]:
-                if st.button("🔄 增量更新数据", key="update_stock_data", type="primary"):
-                    if stock_code:
-                        with st.spinner("正在增量更新数据..."):
-                            success, message = update_stock_data_incremental(stock_code, stock_name, update_date)
-                        if success:
-                            st.success(f"✅ {message}")
-                            st.rerun()
-                        else:
-                            st.error(f"❌ {message}")
 
             col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
             with col_stats1:
