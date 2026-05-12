@@ -33,3 +33,6 @@ data/*.db
 # log
 logs/
 log/
+
+# evironment
+.env
