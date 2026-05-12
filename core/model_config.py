@@ -20,9 +20,9 @@ MODEL_CONFIGS = [
         "recommended": True
     },
     {
-        "name": "deepseek-v4",
-        "display_name": "V4 模型",
-        "description": "更强的推理能力",
+        "name": "deepseek-v4-pro",
+        "display_name": "V4 Pro",
+        "description": "最强推理能力",
         "price_per_1k_tokens": {
             "prompt": 0.003,
             "completion": 0.004
