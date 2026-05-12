@@ -16,16 +16,6 @@ def is_streamlit_cloud():
         return True
     if os.environ.get('IS_STREAMLIT_CLOUD', '').lower() == 'true':
         return True
-    try:
-        import streamlit as st
-        if hasattr(st, 'secrets'):
-            try:
-                if st.secrets.get('DEEPSEEK_API_KEY', '').startswith('sk-'):
-                    return True
-            except:
-                pass
-    except:
-        pass
     return False
 
 if is_streamlit_cloud():
