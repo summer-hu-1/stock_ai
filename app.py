@@ -47,7 +47,7 @@ def get_company_list():
 st.set_page_config(page_title="AI股票复盘系统 V6", page_icon="🧠", layout="wide")
 st.title("🧠 AI股票复盘系统（多Agent架构版）")
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠 多Agent分析（完整）", "📊 各Agent详情", "📈 历史记录", "📅 情绪周期", "📈 日线数据"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠 多Agent分析（完整）", "📊 各Agent详情", "📈 历史记录", "📅 情绪周期"])
 
 with tab1:
     st.header("⚡ 单Prompt分析（快速）")
@@ -571,184 +571,185 @@ with tab5:
                     st.metric("强势股", record['strong_count'])
                     st.metric("弱势股", record['weak_count'])
 
-with tab6:
-    st.header("📈 A股日线数据")
-
-    import pandas as pd
-    import os
-    from datetime import timedelta
-    import akshare as ak
-
-    DATA_DIR = os.path.join(os.path.dirname(__file__), 'data', 'cn', 'daily')
-
-    MARKET_MAP = {
-        'sh_main': {'name': '沪市主板', 'color': '#E74C3C'},
-        'sh_star': {'name': '科创板', 'color': '#9B59B6'},
-        'sz_main': {'name': '深市主板', 'color': '#3498DB'},
-        'sz_sme': {'name': '中小板', 'color': '#27AE60'},
-        'sz_gem': {'name': '创业板', 'color': '#F39C12'}
-    }
-
-    from data_sync.data_sync_manager import DataSyncManager
-
-    sync_manager = DataSyncManager(data_dir=DATA_DIR)
-
-    def get_market_from_code(code):
-        """根据股票代码判断市场"""
-        if code.startswith('6'):
-            if code.startswith('688'):
-                return 'sh_star'
-            return 'sh_main'
-        elif code.startswith('00') or code.startswith('30'):
-            if code.startswith('002'):
-                return 'sz_sme'
-            elif code.startswith('003'):
-                return 'sz_main'
-            elif code.startswith('30'):
-                return 'sz_gem'
-            return 'sz_main'
-        return 'sh_main'
-
-    def get_stock_files():
-        files = []
-        for market in os.listdir(DATA_DIR):
-            market_path = os.path.join(DATA_DIR, market)
-            if not os.path.isdir(market_path) or market not in MARKET_MAP:
-                continue
-            for f in sorted(os.listdir(market_path)):
-                if f.endswith('.csv'):
-                    code = f.replace('.csv', '')
-                    name = code_name_map.get(code, code)
-                    files.append({
-                        'code': code,
-                        'name': name,
-                        'market': market,
-                        'file_path': os.path.join(market, f)
-                    })
-        return sorted(files, key=lambda x: x['code'])
-
-    def get_stock_data(file_path):
-        full_path = os.path.join(DATA_DIR, file_path)
-        if not os.path.exists(full_path):
-            return None
-        return pd.read_csv(full_path)
-
-    companies = get_company_list()
-    code_name_map = {c['code']: c['name'] for c in companies} if companies else {}
-
-    stocks = get_stock_files()
-
-    existing_count = sync_manager.get_existing_stocks_count()
-    total_stocks = len(stocks)
-    
-    stock_options = [""] + [f"{s['name']} ({s['code']})" for s in stocks]
-    stock_file_map = {f"{s['name']} ({s['code']})": s['file_path'] for s in stocks}
-    stock_info_map = {f"{s['name']} ({s['code']})": {'code': s['code'], 'name': s['name'], 'market': s['market']} for s in stocks}
-
-    col_header1, col_header2, col_header3 = st.columns([2, 1, 1])
-    with col_header1:
-        selected_stock = st.selectbox(
-            "选择或输入股票",
-            options=stock_options,
-            index=0,
-            format_func=lambda x: x if x else "输入/选择股票...",
-            key="daily_stock_select"
-        )
-    with col_header2:
-        st.write("")
-        st.write("")
-        update_date = st.date_input(
-            "增量更新到",
-            value=datetime.now(),
-            key="update_date_input",
-            help="选择增量更新的目标日期"
-        )
-    with col_header3:
-        st.write("")
-        st.write("")
-        st.write("")
-
-    col_status, col_full_btn, col_update_btn = st.columns([2, 1, 1])
-    with col_status:
-        st.caption(f"📊 已有 {existing_count} 只股票数据 | 共 {total_stocks} 只")
-
-    with col_update_btn:
-        st.write("")
-        if selected_stock and st.button("🔄 增量更新当前股", key="update_current_stock", type="primary"):
-            stock_info = stock_info_map.get(selected_stock, {})
-            stock_code = stock_info.get('code', '')
-            if stock_code:
-                with st.spinner("正在增量更新..."):
-                    success, message, count = sync_manager.update_stock_incremental(stock_code, update_date.strftime('%Y-%m-%d'))
-                if success:
-                    st.success(f"✅ {message}")
-                    st.rerun()
-                else:
-                    st.error(f"❌ {message}")
-
-    with col_full_btn:
-        st.write("")
-        if st.button("📥 全量更新所有股", key="full_sync_all", help="从2023-01-13开始同步所有股票"):
-            with st.spinner("全量同步中，请稍候..."):
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                def progress_callback(current, total, message):
-                    progress_bar.progress(current / total)
-                    status_text.text(message)
-                
-                result = sync_manager.sync_all_full(progress_callback=progress_callback)
-                
-                progress_bar.empty()
-                status_text.empty()
-                st.success(f"✅ 全量同步完成！成功: {result['success']} 只，失败: {result['failed']} 只")
-                st.rerun()
-
-    if selected_stock:
-        stock_info = stock_info_map.get(selected_stock, {})
-        stock_code = stock_info.get('code', '')
-        stock_name = stock_info.get('name', '')
-        market_name = MARKET_MAP.get(stock_info.get('market', ''), {}).get('name', '')
-        st.caption(f"📊 当前: {stock_name} ({stock_code}) | 市场: {market_name}")
-
-        file_path = stock_file_map.get(selected_stock)
-        df = get_stock_data(file_path)
-
-        if df is not None:
-            st.success(f"✅ 已加载 {df.shape[0]} 条日线数据")
-
-            col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
-            with col_stats1:
-                latest_close = df['close'].iloc[-1] if 'close' in df.columns else 0
-                st.metric("最新收盘", f"{latest_close:.2f}")
-            with col_stats2:
-                latest_change = df['price_change_pct'].iloc[-1] if 'price_change_pct' in df.columns else 0
-                st.metric("最新涨跌", f"{latest_change:.2f}%")
-            with col_stats3:
-                max_close = df['close'].max() if 'close' in df.columns else 0
-                st.metric("最高收盘", f"{max_close:.2f}")
-            with col_stats4:
-                min_close = df['close'].min() if 'close' in df.columns else 0
-                st.metric("最低收盘", f"{min_close:.2f}")
-
-            st.subheader("📊 最近30条日线数据")
-            display_df = df.tail(30)[['date', 'open', 'high', 'low', 'close', 'volume', 'price_change_pct', 'turnover_rate']].copy()
-            display_df['date'] = pd.to_datetime(display_df['date']).dt.strftime('%Y-%m-%d')
-            display_df['price_change_pct'] = display_df['price_change_pct'].apply(lambda x: f"{x:.2f}%")
-            st.dataframe(display_df, use_container_width=True)
-
-            st.subheader("📈 价格走势图")
-            if 'close' in df.columns and 'date' in df.columns:
-                chart_data = df.tail(100)[['date', 'open', 'high', 'low', 'close']].copy()
-                chart_data['date'] = pd.to_datetime(chart_data['date']).dt.strftime('%Y-%m-%d')
-                st.line_chart(chart_data.set_index('date'))
-
-            st.subheader("📊 成交量")
-            if 'volume' in df.columns and 'date' in df.columns:
-                vol_data = df.tail(100)[['date', 'volume']].copy()
-                vol_data['date'] = pd.to_datetime(vol_data['date']).dt.strftime('%Y-%m-%d')
-                st.bar_chart(vol_data.set_index('date'))
-        else:
-            st.error("无法加载数据")
-    else:
-        st.info("请从上方选择股票查看日线数据")
+# === 日线数据 Tab6 已暂时隐藏 ===
+# with tab6:
+#     st.header("📈 A股日线数据")
+# 
+#     import pandas as pd
+#     import os
+#     from datetime import timedelta
+#     import akshare as ak
+# 
+#     DATA_DIR = os.path.join(os.path.dirname(__file__), 'data', 'cn', 'daily')
+# 
+#     MARKET_MAP = {
+#         'sh_main': {'name': '沪市主板', 'color': '#E74C3C'},
+#         'sh_star': {'name': '科创板', 'color': '#9B59B6'},
+#         'sz_main': {'name': '深市主板', 'color': '#3498DB'},
+#         'sz_sme': {'name': '中小板', 'color': '#27AE60'},
+#         'sz_gem': {'name': '创业板', 'color': '#F39C12'}
+#     }
+# 
+#     from data_sync.data_sync_manager import DataSyncManager
+# 
+#     sync_manager = DataSyncManager(data_dir=DATA_DIR)
+# 
+#     def get_market_from_code(code):
+#         """根据股票代码判断市场"""
+#         if code.startswith('6'):
+#             if code.startswith('688'):
+#                 return 'sh_star'
+#             return 'sh_main'
+#         elif code.startswith('00') or code.startswith('30'):
+#             if code.startswith('002'):
+#                 return 'sz_sme'
+#             elif code.startswith('003'):
+#                 return 'sz_main'
+#             elif code.startswith('30'):
+#                 return 'sz_gem'
+#             return 'sz_main'
+#         return 'sh_main'
+# 
+#     def get_stock_files():
+#         files = []
+#         for market in os.listdir(DATA_DIR):
+#             market_path = os.path.join(DATA_DIR, market)
+#             if not os.path.isdir(market_path) or market not in MARKET_MAP:
+#                 continue
+#             for f in sorted(os.listdir(market_path)):
+#                 if f.endswith('.csv'):
+#                     code = f.replace('.csv', '')
+#                     name = code_name_map.get(code, code)
+#                     files.append({
+#                         'code': code,
+#                         'name': name,
+#                         'market': market,
+#                         'file_path': os.path.join(market, f)
+#                     })
+#         return sorted(files, key=lambda x: x['code'])
+# 
+#     def get_stock_data(file_path):
+#         full_path = os.path.join(DATA_DIR, file_path)
+#         if not os.path.exists(full_path):
+#             return None
+#         return pd.read_csv(full_path)
+# 
+#     companies = get_company_list()
+#     code_name_map = {c['code']: c['name'] for c in companies} if companies else {}
+# 
+#     stocks = get_stock_files()
+# 
+#     existing_count = sync_manager.get_existing_stocks_count()
+#     total_stocks = len(stocks)
+#     
+#     stock_options = [""] + [f"{s['name']} ({s['code']})" for s in stocks]
+#     stock_file_map = {f"{s['name']} ({s['code']})": s['file_path'] for s in stocks}
+#     stock_info_map = {f"{s['name']} ({s['code']})": {'code': s['code'], 'name': s['name'], 'market': s['market']} for s in stocks}
+# 
+#     col_header1, col_header2, col_header3 = st.columns([2, 1, 1])
+#     with col_header1:
+#         selected_stock = st.selectbox(
+#             "选择或输入股票",
+#             options=stock_options,
+#             index=0,
+#             format_func=lambda x: x if x else "输入/选择股票...",
+#             key="daily_stock_select"
+#         )
+#     with col_header2:
+#         st.write("")
+#         st.write("")
+#         update_date = st.date_input(
+#             "增量更新到",
+#             value=datetime.now(),
+#             key="update_date_input",
+#             help="选择增量更新的目标日期"
+#         )
+#     with col_header3:
+#         st.write("")
+#         st.write("")
+#         st.write("")
+# 
+#     col_status, col_full_btn, col_update_btn = st.columns([2, 1, 1])
+#     with col_status:
+#         st.caption(f"📊 已有 {existing_count} 只股票数据 | 共 {total_stocks} 只")
+# 
+#     with col_update_btn:
+#         st.write("")
+#         if selected_stock and st.button("🔄 增量更新当前股", key="update_current_stock", type="primary"):
+#             stock_info = stock_info_map.get(selected_stock, {})
+#             stock_code = stock_info.get('code', '')
+#             if stock_code:
+#                 with st.spinner("正在增量更新..."):
+#                     success, message, count = sync_manager.update_stock_incremental(stock_code, update_date.strftime('%Y-%m-%d'))
+#                 if success:
+#                     st.success(f"✅ {message}")
+#                     st.rerun()
+#                 else:
+#                     st.error(f"❌ {message}")
+# 
+#     with col_full_btn:
+#         st.write("")
+#         if st.button("📥 全量更新所有股", key="full_sync_all", help="从2023-01-13开始同步所有股票"):
+#             with st.spinner("全量同步中，请稍候..."):
+#                 progress_bar = st.progress(0)
+#                 status_text = st.empty()
+#                 
+#                 def progress_callback(current, total, message):
+#                     progress_bar.progress(current / total)
+#                     status_text.text(message)
+#                 
+#                 result = sync_manager.sync_all_full(progress_callback=progress_callback)
+#                 
+#                 progress_bar.empty()
+#                 status_text.empty()
+#                 st.success(f"✅ 全量同步完成！成功: {result['success']} 只，失败: {result['failed']} 只")
+#                 st.rerun()
+# 
+#     if selected_stock:
+#         stock_info = stock_info_map.get(selected_stock, {})
+#         stock_code = stock_info.get('code', '')
+#         stock_name = stock_info.get('name', '')
+#         market_name = MARKET_MAP.get(stock_info.get('market', ''), {}).get('name', '')
+#         st.caption(f"📊 当前: {stock_name} ({stock_code}) | 市场: {market_name}")
+# 
+#         file_path = stock_file_map.get(selected_stock)
+#         df = get_stock_data(file_path)
+# 
+#         if df is not None:
+#             st.success(f"✅ 已加载 {df.shape[0]} 条日线数据")
+# 
+#             col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
+#             with col_stats1:
+#                 latest_close = df['close'].iloc[-1] if 'close' in df.columns else 0
+#                 st.metric("最新收盘", f"{latest_close:.2f}")
+#             with col_stats2:
+#                 latest_change = df['price_change_pct'].iloc[-1] if 'price_change_pct' in df.columns else 0
+#                 st.metric("最新涨跌", f"{latest_change:.2f}%")
+#             with col_stats3:
+#                 max_close = df['close'].max() if 'close' in df.columns else 0
+#                 st.metric("最高收盘", f"{max_close:.2f}")
+#             with col_stats4:
+#                 min_close = df['close'].min() if 'close' in df.columns else 0
+#                 st.metric("最低收盘", f"{min_close:.2f}")
+# 
+#             st.subheader("📊 最近30条日线数据")
+#             display_df = df.tail(30)[['date', 'open', 'high', 'low', 'close', 'volume', 'price_change_pct', 'turnover_rate']].copy()
+#             display_df['date'] = pd.to_datetime(display_df['date']).dt.strftime('%Y-%m-%d')
+#             display_df['price_change_pct'] = display_df['price_change_pct'].apply(lambda x: f"{x:.2f}%")
+#             st.dataframe(display_df, use_container_width=True)
+# 
+#             st.subheader("📈 价格走势图")
+#             if 'close' in df.columns and 'date' in df.columns:
+#                 chart_data = df.tail(100)[['date', 'open', 'high', 'low', 'close']].copy()
+#                 chart_data['date'] = pd.to_datetime(chart_data['date']).dt.strftime('%Y-%m-%d')
+#                 st.line_chart(chart_data.set_index('date'))
+# 
+#             st.subheader("📊 成交量")
+#             if 'volume' in df.columns and 'date' in df.columns:
+#                 vol_data = df.tail(100)[['date', 'volume']].copy()
+#                 vol_data['date'] = pd.to_datetime(vol_data['date']).dt.strftime('%Y-%m-%d')
+#                 st.bar_chart(vol_data.set_index('date'))
+#         else:
+#             st.error("无法加载数据")
+#     else:
+#         st.info("请从上方选择股票查看日线数据")
