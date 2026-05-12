@@ -1,16 +1,11 @@
 import streamlit as st
 import sys
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(__file__))
 
 from agents.controller_agent import multi_agent_review
-from agents.market_agent import format_market_report
-from agents.sentiment_agent import format_sentiment_report
-from agents.sector_agent import format_sector_report
-from agents.flow_agent import format_flow_report
-from agents.risk_agent import format_risk_report
 from modules.storage import init_db, save_analysis, save_market_sentiment, get_all_companies, save_company_info, get_company_by_code
 from deepseek import stock_review, check_balance
 from modules.market_data import get_stock_data, get_stock_data_fast
@@ -52,7 +47,55 @@ def get_company_list():
 st.set_page_config(page_title="AI股票复盘系统 V6", page_icon="🧠", layout="wide")
 st.title("🧠 AI股票复盘系统（多Agent架构版）")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠 多Agent分析（完整）", "📊 各Agent详情", "📈 历史记录", "📅 情绪周期"])
+# 模型选择区域
+from core.model_config import (
+    get_all_models, 
+    get_current_model, 
+    set_current_model, 
+    format_price_info,
+    get_model_display_name,
+    get_model_description
+)
+
+col_model, col_api_check = st.columns([3, 1])
+
+with col_model:
+    models = get_all_models()
+    current_model = get_current_model()
+    
+    # 创建模型选项（显示名称 + 描述）
+    model_options = {f"{m['display_name']} - {m['description']}": m["name"] for m in models}
+    
+    selected_model_display = next(k for k, v in model_options.items() if v == current_model)
+    
+    selected_model = st.selectbox(
+        "🤖 选择AI模型",
+        options=list(model_options.keys()),
+        index=list(model_options.values()).index(current_model),
+        key="model_selector"
+    )
+    
+    # 获取选中模型的配置
+    selected_model_name = model_options[selected_model]
+    selected_model_config = next(m for m in models if m["name"] == selected_model_name)
+    
+    # 如果选择了新模型，更新配置
+    if selected_model_name != current_model:
+        if set_current_model(selected_model_name):
+            st.success(f"✅ 已切换到 {selected_model_config['display_name']}")
+            st.rerun()
+    
+    # 显示价格信息
+    st.caption(f"{format_price_info(selected_model_config)} | Max Tokens: {selected_model_config['max_tokens']}")
+
+with col_api_check:
+    api_status = check_balance()
+    if api_status[0]:
+        st.success("✅ API正常")
+    else:
+        st.error(f"❌ {api_status[1]}")
+
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠 多Agent分析（完整）", "📊 各Agent详情", "📈 历史记录", "📅 情绪周期", "📈 日线数据"])
 
 with tab1:
     st.header("⚡ 单Prompt分析（快速）")
@@ -65,32 +108,26 @@ with tab1:
 
     stock_options = [""] + [f"{c['name']} ({c['code']})" for c in companies]
     stock_code_map = {f"{c['name']} ({c['code']})": c['code'] for c in companies}
+    name_code_map = {c['code']: c['name'] for c in companies}
 
-    col1, col2, col3, col4 = st.columns([3, 1, 1, 2])
+    col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
-        if companies:
-            selected_stock = st.selectbox(
-                "选择或输入股票代码",
-                options=stock_options,
-                index=0,
-                format_func=lambda x: x if x else "输入/选择股票...",
-                key="stock_select"
-            )
-            stock = stock_code_map.get(selected_stock, selected_stock if selected_stock else "")
-            stock_input = st.text_input(
-                "或直接输入股票代码（如 601360）",
-                value=stock,
-                placeholder="601360",
-                key="stock_single"
-            )
-            if stock_input:
-                stock = stock_input
-        else:
-            stock = st.text_input("输入股票代码（如 601360）", placeholder="601360", key="stock_single")
+        selected_stock = st.selectbox(
+            "选择或输入股票",
+            options=stock_options,
+            index=0,
+            format_func=lambda x: x if x else "输入/选择股票...",
+            key="stock_select"
+        )
+        stock = stock_code_map.get(selected_stock, selected_stock if selected_stock else "")
 
     col_info, col_btn = st.columns([3, 1])
     with col_info:
-        st.caption(f"📊 已加载 {len(companies) if companies else 0} 家公司")
+        stock_name = name_code_map.get(stock, "")
+        if stock and stock_name:
+            st.caption(f"📊 {len(companies) if companies else 0} 家公司 | 当前: {stock_name} ({stock})")
+        else:
+            st.caption(f"📊 已加载 {len(companies) if companies else 0} 家公司")
     with col_btn:
         if st.button("🔄 更新公司列表", key="refresh_companies", help="点击更新公司列表"):
             load_company_data()
@@ -207,7 +244,37 @@ with tab1:
                     with st.expander("📊 市场情绪数据", expanded=True):
                         st.json(sentiment_data)
                     with st.expander("🔥 热门概念板块", expanded=True):
-                        st.json(hot_sectors)
+                        try:
+                            # 确保 hot_sectors 是有效的列表
+                            if hot_sectors and isinstance(hot_sectors, list):
+                                # 先检查数据是否有效再显示
+                                valid_sectors = []
+                                for sector in hot_sectors:
+                                    if isinstance(sector, dict) and 'name' in sector and 'change_pct' in sector:
+                                        valid_sectors.append(sector)
+                                
+                                if valid_sectors:
+                                    # 美化显示（优先，不显示原始JSON）
+                                    st.markdown("### 🔥 热门概念板块 TOP 10")
+                                    for i, sector in enumerate(valid_sectors[:10], 1):
+                                        change_pct = sector.get('change_pct', 0)
+                                        change_color = "red" if change_pct > 0 else "green"
+                                        change_sign = "+" if change_pct > 0 else ""
+                                        st.markdown(f"{i}. **{sector['name']}**: <span style='color:{change_color};font-weight:bold;'>{change_sign}{change_pct}%</span> (换手 {sector.get('turnover_rate', 0)}%, 涨/跌 {sector.get('rise_count', 0)}/{sector.get('fall_count', 0)})", unsafe_allow_html=True)
+                                else:
+                                    st.info("📦 暂无有效的热门概念数据")
+                            else:
+                                st.info("📦 暂无热门概念数据，使用模拟数据")
+                                # 显示模拟数据
+                                from modules.market_sentiment import _get_mock_hot_sectors
+                                mock_sectors = _get_mock_hot_sectors()
+                                st.markdown("### 🔥 热门概念板块 TOP 10（模拟数据）")
+                                for i, sector in enumerate(mock_sectors[:10], 1):
+                                    change_color = "red" if sector['change_pct'] > 0 else "green"
+                                    st.markdown(f"{i}. **{sector['name']}**: <span style='color:{change_color};font-weight:bold;'>+{sector['change_pct']}%</span> (换手 {sector['turnover_rate']}%, 涨/跌 {sector['rise_count']}/{sector['fall_count']})", unsafe_allow_html=True)
+                        except Exception as e:
+                            st.error(f"显示热门板块时出错: {e}")
+                            st.info("📦 暂无热门概念数据")
                     progress_bar.progress(75, text="✅ 数据准备完成，开始AI分析...")
 
                 progress_bar.progress(80, text="🤖 步骤 4/5：AI正在分析中...")
@@ -273,7 +340,37 @@ with tab2:
                 with st.expander("📊 市场情绪数据", expanded=True):
                     st.json(sentiment_data)
                 with st.expander("🔥 热门概念板块", expanded=True):
-                    st.json(hot_sectors)
+                    try:
+                        # 确保 hot_sectors 是有效的列表
+                        if hot_sectors and isinstance(hot_sectors, list):
+                            # 先检查数据是否有效再显示
+                            valid_sectors = []
+                            for sector in hot_sectors:
+                                if isinstance(sector, dict) and 'name' in sector and 'change_pct' in sector:
+                                    valid_sectors.append(sector)
+                            
+                            if valid_sectors:
+                                # 美化显示（优先，不显示原始JSON）
+                                st.markdown("### 🔥 热门概念板块 TOP 10")
+                                for i, sector in enumerate(valid_sectors[:10], 1):
+                                    change_pct = sector.get('change_pct', 0)
+                                    change_color = "red" if change_pct > 0 else "green"
+                                    change_sign = "+" if change_pct > 0 else ""
+                                    st.markdown(f"{i}. **{sector['name']}**: <span style='color:{change_color};font-weight:bold;'>{change_sign}{change_pct}%</span> (换手 {sector.get('turnover_rate', 0)}%, 涨/跌 {sector.get('rise_count', 0)}/{sector.get('fall_count', 0)})", unsafe_allow_html=True)
+                            else:
+                                st.info("📦 暂无有效的热门概念数据")
+                        else:
+                            st.info("📦 暂无热门概念数据，使用模拟数据")
+                            # 显示模拟数据
+                            from modules.market_sentiment import _get_mock_hot_sectors
+                            mock_sectors = _get_mock_hot_sectors()
+                            st.markdown("### 🔥 热门概念板块 TOP 10（模拟数据）")
+                            for i, sector in enumerate(mock_sectors[:10], 1):
+                                change_color = "red" if sector['change_pct'] > 0 else "green"
+                                st.markdown(f"{i}. **{sector['name']}**: <span style='color:{change_color};font-weight:bold;'>+{sector['change_pct']}%</span> (换手 {sector['turnover_rate']}%, 涨/跌 {sector['rise_count']}/{sector['fall_count']})", unsafe_allow_html=True)
+                    except Exception as e:
+                        st.error(f"显示热门板块时出错: {e}")
+                        st.info("📦 暂无热门概念数据")
 
             progress_bar.progress(55, text="🤖 步骤 4/6：正在协调多个Agent进行市场分析...")
             with st.spinner("🔄 正在协调多个Agent进行市场分析..."):
@@ -456,13 +553,14 @@ with tab4:
 with tab5:
     st.header("📅 市场情绪周期")
     from modules.storage import get_market_sentiment_history, save_market_sentiment, get_cached_market_sentiment
-    from agents.sentiment_agent import analyze_sentiment
+    from modules.market_sentiment import analyze_sentiment
+    from core.market_memory import MarketMemory
 
     @st.cache_data(ttl=300)
     def cached_get_sentiment_history():
         return get_market_sentiment_history()
 
-    col_refresh, col_save = st.columns([1, 1])
+    col_refresh, col_save, col_snapshot = st.columns([1, 1, 1])
     with col_refresh:
         if st.button("🔄 刷新情绪数据"):
             st.rerun()
@@ -472,6 +570,16 @@ with tab5:
             sentiment = analyze_sentiment()
             save_market_sentiment(sentiment)
             st.success("✅ 情绪数据已保存")
+
+    with col_snapshot:
+        if st.button("📸 生成市场快照"):
+            sentiment = analyze_sentiment()
+            memory = MarketMemory()
+            success = memory.save_snapshot(sentiment)
+            if success:
+                st.success("✅ 市场快照已保存")
+            else:
+                st.error("❌ 市场快照保存失败")
 
     cached_sentiment = get_cached_market_sentiment()
     if cached_sentiment:
@@ -521,3 +629,353 @@ with tab5:
                 with cols[2]:
                     st.metric("强势股", record['strong_count'])
                     st.metric("弱势股", record['weak_count'])
+
+    st.divider()
+    st.subheader("🧠 市场记忆 - 历史趋势分析")
+
+    memory = MarketMemory()
+    context = memory.get_market_context(days=5)
+
+    if context.get("has_context"):
+        col_cycle, col_emotion = st.columns(2)
+        with col_cycle:
+            st.info(f"**📊 市场周期**：{context['market_cycle']['cycle']}（{context['market_cycle']['stage']}）")
+            st.caption(context['market_cycle']['description'])
+
+        with col_emotion:
+            trend_emoji = {
+                "上升": "📈",
+                "下降": "📉",
+                "震荡": "⚡"
+            }.get(context['emotion_trend']['direction'], "❓")
+            st.info(f"**{trend_emoji} 情绪趋势**：{context['emotion_trend']['direction']}")
+            st.caption(context['emotion_trend']['description'])
+
+        col_sector, col_leader = st.columns(2)
+        with col_sector:
+            st.info(f"**🔄 板块轮动**")
+            st.caption(context['sector_rotation']['description'])
+
+        with col_leader:
+            st.info(f"**🐉 龙头切换**")
+            st.caption(context['leader_rotation']['description'])
+
+        col_risk = st.columns(1)
+        with col_risk[0]:
+            risk_emoji = {
+                "上升": "⚠️",
+                "下降": "✅",
+                "稳定": "➖"
+            }.get(context['risk_change']['trend'], "❓")
+            st.info(f"**{risk_emoji} 风险变化**：{context['risk_change']['trend']}")
+            st.caption(context['risk_change']['description'])
+
+        st.divider()
+        st.subheader("📈 趋势图表")
+
+        snapshots = memory.get_recent_snapshots(10)
+        if len(snapshots) >= 2:
+            import pandas as pd
+
+            dates = [s.date for s in reversed(snapshots)]
+            emotion_scores = [s.emotion_score for s in reversed(snapshots)]
+            limit_ups = [s.limit_up_count for s in reversed(snapshots)]
+
+            chart_df = pd.DataFrame({
+                "日期": dates,
+                "情绪得分": emotion_scores,
+                "涨停家数": limit_ups
+            })
+
+            col_chart1, col_chart2 = st.columns(2)
+            with col_chart1:
+                st.line_chart(chart_df.set_index("日期")[["情绪得分"]])
+
+            with col_chart2:
+                st.line_chart(chart_df.set_index("日期")[["涨停家数"]])
+        else:
+            st.info("📊 历史数据不足，需要至少2天的市场快照才能生成趋势图表")
+
+    st.divider()
+    st.subheader("🤖 AI市场洞察")
+
+    col_insight_days, col_generate = st.columns([1, 1])
+    with col_insight_days:
+        insight_days = st.selectbox("分析天数", options=[3, 5, 7, 10], index=1, key="insight_days")
+    with col_generate:
+        if st.button("🧠 生成AI洞察", key="generate_insight"):
+            with st.spinner("🤖 AI正在分析市场..."):
+                insight = memory.generate_market_insight(days=insight_days)
+                memory.save_insight(insight)
+                st.success("✅ AI洞察已生成并保存")
+                st.rerun()
+
+    latest_insight = memory.get_latest_insight()
+    if latest_insight:
+        col_state, col_confidence = st.columns([3, 1])
+        with col_state:
+            st.info(f"**📊 市场状态**：{latest_insight.current_state}")
+            st.caption(latest_insight.state_description)
+        with col_confidence:
+            confidence_color = "🟢" if latest_insight.confidence > 0.8 else "🟡" if latest_insight.confidence > 0.6 else "🔴"
+            st.metric(f"{confidence_color} 置信度", f"{latest_insight.confidence*100:.0f}%")
+
+        col_trend, col_risk = st.columns(2)
+        with col_trend:
+            with st.expander("📈 趋势分析", expanded=True):
+                st.markdown(latest_insight.trend_analysis)
+
+        with col_risk:
+            with st.expander("⚠️ 风险提示", expanded=True):
+                st.warning(latest_insight.risk_alert)
+
+        col_opp, col_action = st.columns(2)
+        with col_opp:
+            with st.expander("💡 机会提示", expanded=True):
+                st.success(latest_insight.opportunity)
+
+        with col_action:
+            with st.expander("🎯 操作建议", expanded=True):
+                st.info(latest_insight.action_suggestion)
+
+        if latest_insight.key_changes:
+            with st.expander("🔑 关键观察点"):
+                for change in latest_insight.key_changes:
+                    st.markdown(f"- {change}")
+
+        st.divider()
+        st.subheader("📜 历史洞察记录")
+
+        recent_insights = memory.get_recent_insights(10)
+        if recent_insights:
+            for insight in recent_insights:
+                with st.expander(f"📅 {insight.date} - {insight.current_state}"):
+                    cols = st.columns(3)
+                    with cols[0]:
+                        st.metric("市场状态", insight.current_state)
+                        st.metric("置信度", f"{insight.confidence*100:.0f}%")
+                    with cols[1]:
+                        st.caption("**风险提示**")
+                        st.warning(insight.risk_alert)
+                    with cols[2]:
+                        st.caption("**操作建议**")
+                        st.info(insight.action_suggestion)
+        else:
+            st.info("📊 暂无历史洞察记录")
+    
+    st.divider()
+    st.subheader("📥 历史快照拉取")
+    
+    col_start, col_end, col_fetch = st.columns([2, 2, 1])
+    with col_start:
+        start_date = st.date_input("开始日期", value=datetime.now() - timedelta(days=7), key="history_start")
+    with col_end:
+        end_date = st.date_input("结束日期", value=datetime.now(), key="history_end")
+    with col_fetch:
+        if st.button("🚀 拉取历史快照", key="fetch_history"):
+            if start_date > end_date:
+                st.error("❌ 开始日期不能大于结束日期")
+            else:
+                with st.spinner(f"⏳ 正在拉取 {start_date} 到 {end_date} 的快照..."):
+                    result = memory.fetch_date_range(start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+                    st.success(f"✅ 拉取完成！成功: {result['success']} | 失败: {result['failed']} | 跳过: {result['skipped']}")
+    
+    col_update_days, col_update = st.columns([2, 1])
+    with col_update_days:
+        update_days = st.selectbox("增量更新最近N天", options=[7, 14, 30, 60], index=2, key="update_days")
+    with col_update:
+        if st.button("🔄 增量更新快照", key="update_snapshots"):
+            with st.spinner(f"⏳ 正在增量更新最近 {update_days} 天的快照..."):
+                result = memory.update_missing_snapshots(days=update_days)
+                st.success(f"✅ 更新完成！缺失: {result['total_missing']} | 成功: {result['success']} | 失败: {result['failed']}")
+    
+    # 显示当前已有的快照日期范围
+    snapshots = memory.get_recent_snapshots(365)
+    if snapshots:
+        earliest_date = snapshots[-1].date
+        latest_date = snapshots[0].date
+        st.info(f"📊 当前已有快照: {len(snapshots)} 天（{earliest_date} 至 {latest_date}）")
+    else:
+        st.info("📊 当前暂无快照数据")
+
+with tab6:
+    st.header("📈 A股日线数据")
+
+    import pandas as pd
+    import os
+    from datetime import timedelta
+    import akshare as ak
+
+    DATA_DIR = os.path.join(os.path.dirname(__file__), 'data', 'cn', 'daily')
+
+    MARKET_MAP = {
+        'sh_main': {'name': '沪市主板', 'color': '#E74C3C'},
+        'sh_star': {'name': '科创板', 'color': '#9B59B6'},
+        'sz_main': {'name': '深市主板', 'color': '#3498DB'},
+        'sz_sme': {'name': '中小板', 'color': '#27AE60'},
+        'sz_gem': {'name': '创业板', 'color': '#F39C12'}
+    }
+
+    from data_sync.data_sync_manager import DataSyncManager
+
+    sync_manager = DataSyncManager(data_dir=DATA_DIR)
+
+    def get_market_from_code(code):
+        """根据股票代码判断市场"""
+        if code.startswith('6'):
+            if code.startswith('688'):
+                return 'sh_star'
+            return 'sh_main'
+        elif code.startswith('00') or code.startswith('30'):
+            if code.startswith('002'):
+                return 'sz_sme'
+            elif code.startswith('003'):
+                return 'sz_main'
+            elif code.startswith('30'):
+                return 'sz_gem'
+            return 'sz_main'
+        return 'sh_main'
+
+    def get_stock_files():
+        files = []
+        for market in os.listdir(DATA_DIR):
+            market_path = os.path.join(DATA_DIR, market)
+            if not os.path.isdir(market_path) or market not in MARKET_MAP:
+                continue
+            for f in sorted(os.listdir(market_path)):
+                if f.endswith('.csv'):
+                    code = f.replace('.csv', '')
+                    name = code_name_map.get(code, code)
+                    files.append({
+                        'code': code,
+                        'name': name,
+                        'market': market,
+                        'file_path': os.path.join(market, f)
+                    })
+        return sorted(files, key=lambda x: x['code'])
+
+    def get_stock_data(file_path):
+        full_path = os.path.join(DATA_DIR, file_path)
+        if not os.path.exists(full_path):
+            return None
+        return pd.read_csv(full_path)
+
+    companies = get_company_list()
+    code_name_map = {c['code']: c['name'] for c in companies} if companies else {}
+
+    stocks = get_stock_files()
+
+    existing_count = sync_manager.get_existing_stocks_count()
+    total_stocks = len(stocks)
+    
+    stock_options = [""] + [f"{s['name']} ({s['code']})" for s in stocks]
+    stock_file_map = {f"{s['name']} ({s['code']})": s['file_path'] for s in stocks}
+    stock_info_map = {f"{s['name']} ({s['code']})": {'code': s['code'], 'name': s['name'], 'market': s['market']} for s in stocks}
+
+    col_header1, col_header2, col_header3 = st.columns([2, 1, 1])
+    with col_header1:
+        selected_stock = st.selectbox(
+            "选择或输入股票",
+            options=stock_options,
+            index=0,
+            format_func=lambda x: x if x else "输入/选择股票...",
+            key="daily_stock_select"
+        )
+    with col_header2:
+        st.write("")
+        st.write("")
+        update_date = st.date_input(
+            "增量更新到",
+            value=datetime.now(),
+            key="update_date_input",
+            help="选择增量更新的目标日期"
+        )
+    with col_header3:
+        st.write("")
+        st.write("")
+        st.write("")
+
+    col_status, col_full_btn, col_update_btn = st.columns([2, 1, 1])
+    with col_status:
+        st.caption(f"📊 已有 {existing_count} 只股票数据 | 共 {total_stocks} 只")
+
+    with col_update_btn:
+        st.write("")
+        if selected_stock and st.button("🔄 增量更新当前股", key="update_current_stock", type="primary"):
+            stock_info = stock_info_map.get(selected_stock, {})
+            stock_code = stock_info.get('code', '')
+            if stock_code:
+                with st.spinner("正在增量更新..."):
+                    success, message, count = sync_manager.update_stock_incremental(stock_code, update_date.strftime('%Y-%m-%d'))
+                if success:
+                    st.success(f"✅ {message}")
+                    st.rerun()
+                else:
+                    st.error(f"❌ {message}")
+
+    with col_full_btn:
+        st.write("")
+        if st.button("📥 全量更新所有股", key="full_sync_all", help="从2023-01-13开始同步所有股票"):
+            with st.spinner("全量同步中，请稍候..."):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                def progress_callback(current, total, message):
+                    progress_bar.progress(current / total)
+                    status_text.text(message)
+                
+                result = sync_manager.sync_all_full(progress_callback=progress_callback)
+                
+                progress_bar.empty()
+                status_text.empty()
+                st.success(f"✅ 全量同步完成！成功: {result['success']} 只，失败: {result['failed']} 只")
+                st.rerun()
+
+    if selected_stock:
+        stock_info = stock_info_map.get(selected_stock, {})
+        stock_code = stock_info.get('code', '')
+        stock_name = stock_info.get('name', '')
+        market_name = MARKET_MAP.get(stock_info.get('market', ''), {}).get('name', '')
+        st.caption(f"📊 当前: {stock_name} ({stock_code}) | 市场: {market_name}")
+
+        file_path = stock_file_map.get(selected_stock)
+        df = get_stock_data(file_path)
+
+        if df is not None:
+            st.success(f"✅ 已加载 {df.shape[0]} 条日线数据")
+
+            col_stats1, col_stats2, col_stats3, col_stats4 = st.columns(4)
+            with col_stats1:
+                latest_close = df['close'].iloc[-1] if 'close' in df.columns else 0
+                st.metric("最新收盘", f"{latest_close:.2f}")
+            with col_stats2:
+                latest_change = df['price_change_pct'].iloc[-1] if 'price_change_pct' in df.columns else 0
+                st.metric("最新涨跌", f"{latest_change:.2f}%")
+            with col_stats3:
+                max_close = df['close'].max() if 'close' in df.columns else 0
+                st.metric("最高收盘", f"{max_close:.2f}")
+            with col_stats4:
+                min_close = df['close'].min() if 'close' in df.columns else 0
+                st.metric("最低收盘", f"{min_close:.2f}")
+
+            st.subheader("📊 最近30条日线数据")
+            display_df = df.tail(30)[['date', 'open', 'high', 'low', 'close', 'volume', 'price_change_pct', 'turnover_rate']].copy()
+            display_df['date'] = pd.to_datetime(display_df['date']).dt.strftime('%Y-%m-%d')
+            display_df['price_change_pct'] = display_df['price_change_pct'].apply(lambda x: f"{x:.2f}%")
+            st.dataframe(display_df, use_container_width=True)
+
+            st.subheader("📈 价格走势图")
+            if 'close' in df.columns and 'date' in df.columns:
+                chart_data = df.tail(100)[['date', 'open', 'high', 'low', 'close']].copy()
+                chart_data['date'] = pd.to_datetime(chart_data['date']).dt.strftime('%Y-%m-%d')
+                st.line_chart(chart_data.set_index('date'))
+
+            st.subheader("📊 成交量")
+            if 'volume' in df.columns and 'date' in df.columns:
+                vol_data = df.tail(100)[['date', 'volume']].copy()
+                vol_data['date'] = pd.to_datetime(vol_data['date']).dt.strftime('%Y-%m-%d')
+                st.bar_chart(vol_data.set_index('date'))
+        else:
+            st.error("无法加载数据")
+    else:
+        st.info("请从上方选择股票查看日线数据")
