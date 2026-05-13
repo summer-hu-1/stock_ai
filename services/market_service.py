@@ -1,509 +1,315 @@
-"""
-Market Service - 市场服务
+"""市场服务 - 提供市场状态管理功能"""
 
-V9 Service Layer 组件，提供市场相关的统一接口：
-1. 市场情绪查询
-2. 市场快照管理
-3. 市场结构分析
-4. 市场洞察生成
-5. 龙头股票管理
-
-核心原则：
-- UI 不直接调用 MarketMemory/MarketStateEngine，通过 Service Layer 访问
-- 统一错误处理和日志记录
-"""
-
-import logging
-from typing import Dict, Any, List, Optional
+import sqlite3
+import os
 from datetime import datetime, timedelta
+from typing import Dict, Any, List
 
-# 设置日志
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+# 获取项目根目录
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(PROJECT_DIR, "storage", "sqlite", "signals.db")
 
 
 class MarketService:
-    """
-    市场服务
-    
-    提供市场相关的统一接口，隔离 UI 和底层市场引擎
-    """
-    
-    def __init__(self):
-        """初始化市场服务"""
-        logger.info("🔧 初始化市场服务")
-        
-        # 延迟加载依赖
-        self._market_memory = None
-        self._structure_engine = None
-        self._data_service = None
-    
-    @property
-    def market_memory(self):
-        if self._market_memory is None:
-            from core.market_memory import MarketMemory
-            self._market_memory = MarketMemory()
-        return self._market_memory
-    
-    @property
-    def structure_engine(self):
-        if self._structure_engine is None:
-            from core.market_structure_engine import get_market_structure_engine
-            self._structure_engine = get_market_structure_engine()
-        return self._structure_engine
-    
-    @property
-    def data_service(self):
-        if self._data_service is None:
-            from core.online_data_service import get_data_service
-            self._data_service = get_data_service()
-        return self._data_service
-    
-    def get_market_context(self, days: int = 5) -> Dict:
-        """
-        获取市场上下文
-        
-        Args:
-            days: 分析天数
-        
-        Returns:
-            Dict: 市场上下文
-        """
-        logger.debug(f"🧠 获取市场上下文（最近{days}天）")
-        
-        try:
-            context = self.market_memory.get_market_context(days)
-            return context
-        
-        except Exception as e:
-            logger.error(f"❌ 获取市场上下文失败: {e}")
-            return {"has_context": False, "message": str(e)}
-    
-    def get_market_snapshot(self, date: str = None) -> Optional[Dict]:
-        """
-        获取市场快照
-        
-        Args:
-            date: 查询日期（默认今日）
-        
-        Returns:
-            Dict: 市场快照数据
-        """
-        logger.debug(f"📸 获取市场快照")
-        
-        try:
-            if date is None:
-                date = datetime.now().strftime("%Y-%m-%d")
-            
-            snapshot = self.market_memory.get_snapshot_by_date(date)
-            
-            if snapshot:
-                return snapshot.to_dict()
-            return None
-        
-        except Exception as e:
-            logger.error(f"❌ 获取市场快照失败: {e}")
-            return None
-    
-    def get_recent_snapshots(self, days: int = 30) -> List[Dict]:
-        """
-        获取最近N天的市场快照
-        
-        Args:
-            days: 天数
-        
-        Returns:
-            List: 市场快照列表
-        """
-        logger.debug(f"📸 获取最近{days}天的市场快照")
-        
-        try:
-            snapshots = self.market_memory.get_recent_snapshots(days)
-            return [s.to_dict() for s in snapshots]
-        
-        except Exception as e:
-            logger.error(f"❌ 获取最近快照失败: {e}")
-            return []
-    
-    def save_market_snapshot(self, sentiment: Dict) -> bool:
-        """
-        保存市场快照
-        
-        Args:
-            sentiment: 市场情绪数据
-        
-        Returns:
-            bool: 是否成功
-        """
-        logger.info("📸 保存市场快照")
-        
-        try:
-            success = self.market_memory.save_snapshot(sentiment)
-            
-            if success:
-                logger.info("✅ 市场快照保存成功")
-            else:
-                logger.warning("⚠️ 市场快照保存失败")
-            
-            return success
-        
-        except Exception as e:
-            logger.error(f"❌ 保存市场快照失败: {e}")
-            return False
-    
-    def fetch_historical_snapshots(self, start_date: str, end_date: str) -> Dict:
-        """
-        拉取历史快照
-        
-        Args:
-            start_date: 开始日期
-            end_date: 结束日期
-        
-        Returns:
-            Dict: 拉取结果统计
-        """
-        logger.info(f"📥 拉取历史快照: {start_date} 至 {end_date}")
-        
-        try:
-            result = self.market_memory.fetch_date_range(start_date, end_date)
-            return result
-        
-        except Exception as e:
-            logger.error(f"❌ 拉取历史快照失败: {e}")
-            return {"success": 0, "failed": 0, "skipped": 0}
-    
-    def update_missing_snapshots(self, days: int = 30) -> Dict:
-        """
-        增量更新缺失的快照
-        
-        Args:
-            days: 最近N天
-        
-        Returns:
-            Dict: 更新结果统计
-        """
-        logger.info(f"🔄 增量更新最近{days}天的快照")
-        
-        try:
-            result = self.market_memory.update_missing_snapshots(days)
-            return result
-        
-        except Exception as e:
-            logger.error(f"❌ 增量更新快照失败: {e}")
-            return {"total_missing": 0, "success": 0, "failed": 0}
-    
-    def analyze_market_structure(self, days: int = 5) -> Dict:
-        """
-        分析市场结构
-        
-        Args:
-            days: 分析天数
-        
-        Returns:
-            Dict: 市场结构分析结果
-        """
-        logger.info(f"🧠 分析市场结构（最近{days}天）")
-        
-        try:
-            structure = self.structure_engine.analyze_market_structure(days)
-            return structure
-        
-        except Exception as e:
-            logger.error(f"❌ 分析市场结构失败: {e}")
-            return {"success": False, "error": str(e)}
-    
-    def generate_market_insight(self, days: int = 5) -> Dict:
-        """
-        生成市场洞察
-        
-        Args:
-            days: 分析天数
-        
-        Returns:
-            Dict: 市场洞察结果
-        """
-        logger.info(f"🤖 生成市场洞察（最近{days}天）")
-        
-        try:
-            insight = self.market_memory.generate_market_insight(days)
-            
-            if insight:
-                # 保存洞察
-                self.market_memory.save_insight(insight)
-                
-                return {
-                    "success": True,
-                    "insight": {
-                        "date": insight.date,
-                        "current_state": insight.current_state,
-                        "state_description": insight.state_description,
-                        "trend_analysis": insight.trend_analysis,
-                        "risk_alert": insight.risk_alert,
-                        "opportunity": insight.opportunity,
-                        "action_suggestion": insight.action_suggestion,
-                        "confidence": insight.confidence
-                    }
-                }
-            
-            return {"success": False, "error": "未能生成洞察"}
-        
-        except Exception as e:
-            logger.error(f"❌ 生成市场洞察失败: {e}")
-            return {"success": False, "error": str(e)}
-    
-    def get_latest_insight(self) -> Optional[Dict]:
-        """
-        获取最新的市场洞察
-        
-        Returns:
-            Dict: 最新市场洞察
-        """
-        logger.debug(f"📊 获取最新市场洞察")
-        
-        try:
-            insight = self.market_memory.get_latest_insight()
-            
-            if insight:
-                return {
-                    "date": insight.date,
-                    "current_state": insight.current_state,
-                    "state_description": insight.state_description,
-                    "trend_analysis": insight.trend_analysis,
-                    "risk_alert": insight.risk_alert,
-                    "opportunity": insight.opportunity,
-                    "action_suggestion": insight.action_suggestion,
-                    "confidence": insight.confidence,
-                    "key_changes": insight.key_changes
-                }
-            
-            return None
-        
-        except Exception as e:
-            logger.error(f"❌ 获取最新洞察失败: {e}")
-            return None
-    
-    def get_recent_insights(self, days: int = 30) -> List[Dict]:
-        """
-        获取最近N天的市场洞察
-        
-        Args:
-            days: 天数
-        
-        Returns:
-            List: 市场洞察列表
-        """
-        logger.debug(f"📊 获取最近{days}天的市场洞察")
-        
-        try:
-            insights = self.market_memory.get_recent_insights(days)
-            
-            result = []
-            for insight in insights:
-                result.append({
-                    "date": insight.date,
-                    "current_state": insight.current_state,
-                    "state_description": insight.state_description,
-                    "risk_alert": insight.risk_alert,
-                    "action_suggestion": insight.action_suggestion,
-                    "confidence": insight.confidence
-                })
-            
-            return result
-        
-        except Exception as e:
-            logger.error(f"❌ 获取最近洞察失败: {e}")
-            return []
-    
-    def get_all_leaders(self, date: str = None) -> List[Dict]:
-        """
-        获取所有龙头股票
-        
-        Args:
-            date: 查询日期（默认今日）
-        
-        Returns:
-            List: 龙头股票列表
-        """
-        logger.debug(f"🐉 获取所有龙头股票")
-        
-        try:
-            leaders = self.data_service.get_all_leaders(date)
-            return leaders
-        
-        except Exception as e:
-            logger.error(f"❌ 获取龙头股票失败: {e}")
-            return []
-    
-    def get_market_summary(self, date: str = None) -> Dict:
-        """
-        获取市场摘要
-        
-        Args:
-            date: 查询日期（默认今日）
-        
-        Returns:
-            Dict: 市场摘要数据
-        """
-        logger.debug(f"📊 获取市场摘要")
-        
-        try:
-            summary = self.data_service.get_market_summary(date)
-            
-            # 补充市场记忆数据
-            snapshot = self.get_market_snapshot(date)
-            if snapshot:
-                summary.update({
-                    "market_sentiment": snapshot.get("market_sentiment"),
-                    "emotion_score": snapshot.get("emotion_score"),
-                    "limit_up_count": snapshot.get("limit_up_count"),
-                    "limit_down_count": snapshot.get("limit_down_count")
-                })
-            
-            return summary
-        
-        except Exception as e:
-            logger.error(f"❌ 获取市场摘要失败: {e}")
-            return {}
-    
-    def get_market_cycle(self, days: int = 5) -> Dict:
-        """
-        获取市场周期信息
-        
-        Args:
-            days: 分析天数
-        
-        Returns:
-            Dict: 市场周期信息
-        """
-        logger.debug(f"🔄 获取市场周期")
-        
-        try:
-            context = self.market_memory.get_market_context(days)
-            
-            if not context.get("has_context"):
-                return {
-                    "cycle": "未知",
-                    "stage": "未知",
-                    "description": "数据不足"
-                }
-            
-            market_cycle = context.get("market_cycle", {})
-            
-            return {
-                "cycle": market_cycle.get("cycle", "未知"),
-                "stage": market_cycle.get("stage", "未知"),
-                "description": market_cycle.get("description", ""),
-                "limit_up": market_cycle.get("limit_up", 0),
-                "emotion_score": market_cycle.get("emotion_score", 0),
-                "bomb_rate": market_cycle.get("bomb_rate", 0)
-            }
-        
-        except Exception as e:
-            logger.error(f"❌ 获取市场周期失败: {e}")
-            return {"cycle": "未知", "stage": "未知", "description": str(e)}
-    
-    def get_sector_rotation(self, days: int = 7) -> Dict:
-        """
-        获取板块轮动信息
-        
-        Args:
-            days: 分析天数
-        
-        Returns:
-            Dict: 板块轮动信息
-        """
-        logger.debug(f"🔄 获取板块轮动")
-        
-        try:
-            context = self.market_memory.get_market_context(days)
-            
-            if not context.get("has_context"):
-                return {
-                    "has_rotation": False,
-                    "description": "数据不足"
-                }
-            
-            sector_rotation = context.get("sector_rotation", {})
-            
-            return {
-                "has_rotation": sector_rotation.get("has_rotation", False),
-                "rotation_from": sector_rotation.get("rotation_from"),
-                "rotation_to": sector_rotation.get("rotation_to"),
-                "description": sector_rotation.get("description", ""),
-                "rotation_history": sector_rotation.get("rotation_history", {})
-            }
-        
-        except Exception as e:
-            logger.error(f"❌ 获取板块轮动失败: {e}")
-            return {"has_rotation": False, "description": str(e)}
-    
-    def get_leader_rotation(self, days: int = 5) -> Dict:
-        """
-        获取龙头切换信息
-        
-        Args:
-            days: 分析天数
-        
-        Returns:
-            Dict: 龙头切换信息
-        """
-        logger.debug(f"🐉 获取龙头切换")
-        
-        try:
-            context = self.market_memory.get_market_context(days)
-            
-            if not context.get("has_context"):
-                return {
-                    "has_rotation": False,
-                    "description": "数据不足"
-                }
-            
-            leader_rotation = context.get("leader_rotation", {})
-            
-            return {
-                "has_rotation": leader_rotation.get("has_rotation", False),
-                "description": leader_rotation.get("description", ""),
-                "rotation_history": leader_rotation.get("rotation_history", [])
-            }
-        
-        except Exception as e:
-            logger.error(f"❌ 获取龙头切换失败: {e}")
-            return {"has_rotation": False, "description": str(e)}
-    
-    def get_emotion_trend(self, days: int = 5) -> Dict:
-        """
-        获取情绪趋势信息
-        
-        Args:
-            days: 分析天数
-        
-        Returns:
-            Dict: 情绪趋势信息
-        """
-        logger.debug(f"😊 获取情绪趋势")
-        
-        try:
-            context = self.market_memory.get_market_context(days)
-            
-            if not context.get("has_context"):
-                return {
-                    "direction": "未知",
-                    "description": "数据不足"
-                }
-            
-            emotion_trend = context.get("emotion_trend", {})
-            
-            return {
-                "direction": emotion_trend.get("direction", "未知"),
-                "description": emotion_trend.get("description", ""),
-                "trend": emotion_trend.get("trend", []),
-                "change_rate": emotion_trend.get("change_rate", 0)
-            }
-        
-        except Exception as e:
-            logger.error(f"❌ 获取情绪趋势失败: {e}")
-            return {"direction": "未知", "description": str(e)}
+    """市场服务 - 提供市场状态管理和快照功能"""
 
+    def __init__(self):
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        self._init_tables()
+
+    def _init_tables(self):
+        """初始化市场快照表"""
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS market_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sentiment TEXT,
+                sentiment_score REAL,
+                market_cycle TEXT,
+                main_sector TEXT,
+                volatility REAL,
+                date TEXT,
+                created_at TEXT
+            )
+        """)
+
+        conn.commit()
+        conn.close()
+
+    def save_market_snapshot(self, sentiment: Dict) -> bool:
+        """保存市场快照"""
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO market_snapshots (
+                    sentiment,
+                    sentiment_score,
+                    market_cycle,
+                    main_sector,
+                    volatility,
+                    date,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                sentiment.get("sentiment", "neutral"),
+                sentiment.get("score", 0.5),
+                sentiment.get("market_cycle", "unknown"),
+                sentiment.get("main_sector", ""),
+                sentiment.get("volatility", 0.0),
+                datetime.today().strftime("%Y-%m-%d"),
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            ))
+
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"保存市场快照失败: {e}")
+            return False
+
+    def get_recent_snapshots(self, limit: int = 10) -> list:
+        """获取最近的市场快照"""
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT * FROM market_snapshots
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (limit,))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        return [{
+            "id": row[0],
+            "sentiment": row[1],
+            "sentiment_score": row[2],
+            "market_cycle": row[3],
+            "main_sector": row[4],
+            "volatility": row[5],
+            "date": row[6],
+            "created_at": row[7]
+        } for row in rows]
+
+    def get_market_cycle(self, days: int = 5) -> Dict:
+        """获取市场周期信息"""
+        snapshots = self.get_recent_snapshots(limit=days)
+
+        if not snapshots:
+            return {
+                "cycle": "未知",
+                "stage": "无数据",
+                "description": "暂无市场周期数据"
+            }
+
+        avg_score = sum(s["sentiment_score"] for s in snapshots) / len(snapshots)
+
+        if avg_score >= 0.6:
+            cycle = "上升周期"
+            stage = "强势"
+            description = "市场情绪乐观，趋势向上"
+        elif avg_score >= 0.4:
+            cycle = "震荡周期"
+            stage = "中性"
+            description = "市场情绪中性，方向不明"
+        else:
+            cycle = "下降周期"
+            stage = "弱势"
+            description = "市场情绪悲观，趋势向下"
+
+        return {
+            "cycle": cycle,
+            "stage": stage,
+            "description": description,
+            "avg_score": round(avg_score, 2),
+            "snapshot_count": len(snapshots)
+        }
+
+    def get_emotion_trend(self, days: int = 5) -> Dict:
+        """获取情绪趋势"""
+        snapshots = self.get_recent_snapshots(limit=days)
+
+        if not snapshots:
+            return {"trend": "无数据", "change": 0}
+
+        scores = [s["sentiment_score"] for s in snapshots]
+        if len(scores) >= 2:
+            change = scores[0] - scores[-1]
+            if change > 0.1:
+                trend = "上升"
+            elif change < -0.1:
+                trend = "下降"
+            else:
+                trend = "平稳"
+        else:
+            trend = "平稳"
+            change = 0
+
+        return {
+            "trend": trend,
+            "change": round(change, 2),
+            "current_score": scores[0] if scores else 0,
+            "avg_score": round(sum(scores) / len(scores), 2) if scores else 0
+        }
+
+    def get_sector_rotation(self, days: int = 5) -> Dict:
+        """获取板块轮动信息"""
+        snapshots = self.get_recent_snapshots(limit=days)
+
+        if not snapshots:
+            return {"rotation": "无数据", "main_sectors": []}
+
+        sector_counts = {}
+        for s in snapshots:
+            sector = s.get("main_sector", "")
+            if sector:
+                sector_counts[sector] = sector_counts.get(sector, 0) + 1
+
+        if sector_counts:
+            main_sectors = sorted(sector_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+            main_sectors = [s[0] for s in main_sectors]
+        else:
+            main_sectors = []
+
+        return {
+            "rotation": "正常" if len(main_sectors) > 0 else "无主线",
+            "main_sectors": main_sectors,
+            "sector_count": len(sector_counts)
+        }
+
+    def get_leader_rotation(self, days: int = 5) -> Dict:
+        """获取龙头轮动信息"""
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT code, name, leader_score, leader_type, sector
+            FROM leaders
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (days * 5,))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        if not rows:
+            return {"rotation": "无数据", "leaders": []}
+
+        leaders = [{
+            "code": row[0],
+            "name": row[1],
+            "score": row[2],
+            "type": row[3],
+            "sector": row[4]
+        } for row in rows]
+
+        return {
+            "rotation": "正常",
+            "leaders": leaders[:10],
+            "count": len(leaders)
+        }
+
+    def get_latest_insight(self) -> Dict:
+        """获取最新的市场洞察"""
+        snapshots = self.get_recent_snapshots(limit=5)
+        signals_data = self._get_recent_signals(limit=10)
+
+        if not snapshots:
+            return {
+                "current_state": "未知",
+                "state_description": "暂无足够数据生成洞察",
+                "confidence": 0
+            }
+
+        latest = snapshots[0]
+        avg_score = sum(s["sentiment_score"] for s in snapshots) / len(snapshots)
+
+        if avg_score >= 0.6:
+            current_state = "上升趋势"
+            state_description = "市场情绪乐观，多头占优，建议关注强势股"
+        elif avg_score >= 0.4:
+            current_state = "震荡整理"
+            state_description = "市场情绪中性，建议观望或轻仓操作"
+        else:
+            current_state = "下降趋势"
+            state_description = "市场情绪悲观，建议控制风险或空仓"
+
+        confidence = min(0.9, 0.5 + len(snapshots) * 0.08)
+
+        if signals_data:
+            strong_signals = [s for s in signals_data if s.get("strength", 0) > 0.8]
+            if strong_signals:
+                state_description += f" 今日有 {len(strong_signals)} 个强势信号。"
+
+        return {
+            "current_state": current_state,
+            "state_description": state_description,
+            "confidence": round(confidence, 2),
+            "sentiment_score": latest["sentiment_score"],
+            "snapshot_count": len(snapshots)
+        }
+
+    def get_recent_insights(self, limit: int = 10) -> List[Dict]:
+        """获取最近的市场洞察列表"""
+        snapshots = self.get_recent_snapshots(limit=limit)
+
+        insights = []
+        for snapshot in snapshots:
+            avg_score = snapshot["sentiment_score"]
+
+            if avg_score >= 0.6:
+                state = "上升趋势"
+                emoji = "📈"
+            elif avg_score >= 0.4:
+                state = "震荡整理"
+                emoji = "➡️"
+            else:
+                state = "下降趋势"
+                emoji = "📉"
+
+            insights.append({
+                "date": snapshot.get("date", ""),
+                "created_at": snapshot.get("created_at", ""),
+                "state": state,
+                "emoji": emoji,
+                "sentiment_score": snapshot["sentiment_score"],
+                "main_sector": snapshot.get("main_sector", "未知")
+            })
+
+        return insights
+
+    def _get_recent_signals(self, limit: int = 10) -> List[Dict]:
+        """获取最近的信号数据"""
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT code, name, signal_type, direction, strength, date
+            FROM signals
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (limit,))
+
+        rows = cursor.fetchall()
+        conn.close()
+
+        return [{
+            "code": row[0],
+            "name": row[1],
+            "signal_type": row[2],
+            "direction": row[3],
+            "strength": row[4],
+            "date": row[5]
+        } for row in rows]
+
+
+# 全局单例
 _market_service_instance = None
 
 def get_market_service() -> MarketService:

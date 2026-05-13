@@ -1,6 +1,14 @@
-# AI 股票复盘系统 V7（多市场 + 本地日线数据中心）
+# AI Market Operating System V9（信号中心 + 离线计算）
 
 > 基于 DeepSeek + AkShare/yfinance + 多Agent协同的智能交易分析系统
+> 
+> **V9 核心原则**：
+> 1. 系统收敛 - UI → Service → Pipeline → Engine → Storage
+> 2. 离线计算 - 指标由确定性代码预先计算
+> 3. 在线消费 - 分析优先使用预计算数据
+> 4. UI与业务分离 - Service Layer 隔离
+> 5. AI不负责算指标 - 指标由 OfflineCalculator 计算
+> 6. AI负责理解市场结构 - MarketStructureEngine + LLM
 
 ---
 
@@ -48,6 +56,28 @@
   - 优先级3：akshare API（降级方案）
 - **HistoricalSnapshotFetcher**：历史快照拉取器，支持按日期范围获取
 - **移除模拟数据**：取消所有模拟数据生成功能
+
+### V9.0 信号中心 + 离线计算
+> **核心升级**：从「输入股票 -> 临时分析」升级为「全市场扫描 -> 结果入库 -> 用户查询」
+> 
+> **第一阶段：系统收敛**
+> - **Service Layer**：统一服务层，隔离 UI 和业务逻辑
+>   - AnalysisService、SignalService、MarketService、SyncService、UserService
+> - **UI重构**：Tab5、Tab6 通过 Service 访问，不再直接调用 Engine
+> - **多市场支持**：修复市场检测错误，支持 A股/港股/美股数据路由
+> 
+> **第二阶段：Signal Center（核心）**
+> - **SignalScanner**：全市场信号扫描器，扫描5372只A股，计算因子和信号
+> - **LeaderScanner**：龙头识别扫描器，识别总龙头、板块龙头、补涨龙
+> - **WatchlistBuilder**：关注列表构建器，自动构建高强度信号股票列表
+> - **SectorStrength**：板块强度分析器，识别主线板块和轮动趋势
+> - **signals.db**：SQLite数据库，存储 signals、leaders、watchlist、sector_strength、market_state
+> - **Tab2重构**：从数据库读取预计算结果，秒级响应
+> 
+> **每日扫描流程**：
+> ```
+> 全市场股票 → 读取本地OHLCV → FactorEngine → SignalEngine → LeaderEngine → 结果存入SQLite
+> ```
 - **本地数据利用**：充分利用已保存的大量历史数据记录
 
 ### V8.7.1 统一分析管线 + 系统内核化

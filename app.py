@@ -341,100 +341,100 @@ else:
                     )
 
     with tab2:
-        st.header("🧠 统一Pipeline分析（完整）")
+        st.header("📊 AI Market Scanner（信号中心）")
+        st.subheader("全市场扫描 · 结果入库 · 智能分析")
 
-        # 使用共享组件
-        from ui.components import stock_selector_with_market
-        from services import get_analysis_service
+        # 导入服务
+        from services.signal_service import get_signal_service
+        from ai.market_report_generator import generate_report, generate_detailed_report
 
-        stock, stock_name, market = stock_selector_with_market(
-            key_prefix="multi",
-            default_market="cn",
-            show_refresh=True
-        )
+        signal_service = get_signal_service()
 
-        if st.button("🚀 启动Pipeline分析", key="analyze_multi", type="primary"):
-            # 检查配额
-            from auth.auth import can_analyze, record_analysis_usage
-            can_do, msg = can_analyze()
-            if not can_do:
-                st.error(msg)
-            elif not stock:
-                st.error("请输入股票代码")
-            else:
-                progress_bar = st.progress(0, text="准备开始...")
+        # 选项卡：股票分析 vs 市场概览
+        tab_options = st.radio("查看模式", ["📈 单股分析", "📊 市场概览"], horizontal=True)
 
-                # 使用 AnalysisService 进行分析
-                analysis_service = get_analysis_service()
-                
-                progress_bar.progress(30, text="🔧 初始化分析服务...")
-                progress_bar.progress(50, text="🚀 执行完整分析流程...")
-                with st.spinner("🔄 正在执行分析..."):
-                    result = analysis_service.analyze_stock(stock, market=market)
+        if tab_options == "📈 单股分析":
+            # 单股分析模式
+            from ui.components import stock_selector_with_market
+            stock, stock_name, market = stock_selector_with_market(
+                key_prefix="multi",
+                default_market="cn",
+                show_refresh=True
+            )
 
-                # 记录使用次数
-                record_analysis_usage()
-
-                progress_bar.progress(85, text="✅ 分析完成")
-
-                if result.get("success"):
-                    # 保存结果到session
-                    st.session_state.last_stock_code = stock
-                    st.session_state.pipeline_result = result
-
-                    progress_bar.progress(95, text="💾 保存分析结果...")
-                    
-                    progress_bar.progress(100, text="✅ 分析完成！")
-                    st.balloons()
-                    st.success("✅ Pipeline分析完成！")
-
-                    # 显示综合评分
-                    with st.expander("📋 分析摘要", expanded=True):
-                        cols = st.columns(4)
-                        with cols[0]:
-                            st.metric("综合评分", f"{result.get('score', 0)}/100")
-                        with cols[1]:
-                            st.metric("风险等级", result.get("risk_level", "中"))
-                        with cols[2]:
-                            st.metric("信号", result.get("signal", "观望"))
-                        with cols[3]:
-                            st.metric("耗时", f"{result.get('elapsed_time', 0):.2f}秒")
-
-                    # 显示因子分析结果
-                    with st.expander("📊 因子分析", expanded=False):
-                        if result.get("factors"):
-                            st.json(result["factors"])
-                        else:
-                            st.info("暂无因子数据")
-
-                    # 显示信号分析结果
-                    with st.expander("📡 信号分析", expanded=False):
-                        if result.get("signals"):
-                            st.json(result["signals"])
-                        else:
-                            st.info("暂无信号数据")
-
-                    # 显示龙头识别结果
-                    with st.expander("🐉 龙头识别", expanded=False):
-                        if result.get("leaders"):
-                            is_leader = result["leaders"].get("is_leader", False)
-                            st.markdown(f"**是否龙头**: {'👑 是龙头股' if is_leader else '普通股票'}")
-                            st.json(result["leaders"])
-                        else:
-                            st.info("暂无龙头数据")
-
-                    # 显示Agent分析结果
-                    if result.get("agent") and result["agent"].get("success"):
-                        st.subheader("🎯 AI综合分析报告")
-                        agent_data = result["agent"].get("data", {})
-                        if isinstance(agent_data, dict):
-                            st.markdown(agent_data.get("final_report", "暂无报告"))
-                        else:
-                            st.markdown(str(agent_data))
-                    else:
-                        st.info("Agent分析未完成")
+            if st.button("� 查询信号", key="analyze_multi", type="primary"):
+                if not stock:
+                    st.error("请输入股票代码")
                 else:
-                    st.error(f"分析失败: {result.get('error', '未知错误')}")
+                    with st.spinner("� 从数据库查询..."):
+                        df = signal_service.get_stock_signals(stock)
+
+                    if df.empty:
+                        st.info(f"📭 股票 {stock} 暂无信号数据")
+                    else:
+                        st.success(f"✅ 找到 {len(df)} 条信号")
+
+                        # 显示信号表格
+                        st.subheader("📡 信号列表")
+                        st.dataframe(df[["code", "name", "signal_type", "direction", "strength", "date"]])
+
+                        # 信号统计
+                        st.subheader("📊 信号统计")
+                        cols = st.columns(3)
+                        with cols[0]:
+                            st.metric("看多信号", len(df[df["direction"] == "up"]))
+                        with cols[1]:
+                            st.metric("看空信号", len(df[df["direction"] == "down"]))
+                        with cols[2]:
+                            st.metric("平均强度", round(df["strength"].mean(), 2))
+
+        else:
+            # 市场概览模式
+            st.subheader("📈 今日市场扫描概览")
+
+            # 获取市场摘要
+            summary = signal_service.get_signal_summary()
+
+            # 统计卡片
+            cols = st.columns(4)
+            with cols[0]:
+                st.metric("📡 今日信号", summary["total_signals"])
+            with cols[1]:
+                st.metric("📈 看多", summary["up_signals"])
+            with cols[2]:
+                st.metric("📉 看空", summary["down_signals"])
+            with cols[3]:
+                st.metric("⚡ 平均强度", summary["avg_strength"])
+
+            # 获取今日信号数据
+            df = signal_service.get_today_signals()
+
+            if not df.empty:
+                # 显示信号表格
+                st.subheader("📋 今日信号列表")
+                st.dataframe(df[["code", "name", "signal_type", "direction", "strength", "date"]])
+
+                # AI 分析报告
+                st.subheader("🤖 AI 市场分析报告")
+                report = generate_report()
+                st.markdown(report)
+
+                # 高强度信号股票
+                top_df = signal_service.get_top_signals(limit=10, min_strength=0.7)
+                if not top_df.empty:
+                    st.subheader("🔥 强势信号股票")
+                    st.dataframe(top_df[["code", "name", "signal_type", "direction", "strength"]])
+
+            else:
+                st.info("� 暂无今日数据，请先运行每日扫描")
+                
+                # 一键扫描按钮
+                if st.button("� 执行全市场扫描", type="primary"):
+                    from scheduler.daily_scan import run_daily_scan
+                    with st.spinner("🔄 正在扫描全市场..."):
+                        run_daily_scan()
+                    st.success("✅ 扫描完成！")
+                    st.rerun()
 
     with tab3:
         st.header("📊 各Agent分析详情")
