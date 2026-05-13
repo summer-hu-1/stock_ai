@@ -1,7 +1,7 @@
 # AI Market Operating System V9（信号中心 + 离线计算）
 
 > 基于 DeepSeek + AkShare/yfinance + 多Agent协同的智能交易分析系统
-> 
+>
 > **V9 核心原则**：
 > 1. 系统收敛 - UI → Service → Pipeline → Engine → Storage
 > 2. 离线计算 - 指标由确定性代码预先计算
@@ -192,9 +192,7 @@
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
----
-
-## 🤖 各Agent职责
+### 模块职责划分
 
 | Agent | 核心能力 | 输出格式 |
 |-------|----------|----------|
@@ -358,7 +356,7 @@ stock_ai/
 
 ---
 
-## 🧠 核心架构设计
+## 🎯 V9 调用规范（强制）
 
 ### MarketContext 统一数据结构
 
@@ -623,22 +621,18 @@ python3 -m streamlit run app.py --server.headless=true
 
 ---
 
-## 📝 后续升级方向
+## 📌 依赖说明
 
-### V9.2 信号中心完整实现 ✅ 已完成
-- [x] 信号扫描器 (SignalScanner)
-- [x] 龙头识别扫描器 (LeaderScanner)
-- [x] 关注列表构建器 (WatchlistBuilder)
-- [x] 板块强度分析器 (SectorStrength)
-- [x] 每日扫描调度 (daily_scan.py)
+```
+streamlit>=1.28.0
+pandas>=2.0.0
+numpy>=1.24.0
+akshare>=1.12.0
+yfinance>=0.2.0
+sqlite3 (内置)
+```
 
-### V9.3 数据库完善
-- [ ] 数据库初始化脚本
-- [ ] 索引优化
-- [ ] 数据清理任务
+---
 
-### V10.0 AI整合与自动化
-- [ ] AI分析整合因子信号
-- [ ] 自动选股功能
-- [ ] 回测系统
-- [ ] 每日交易建议推送
+> **详细架构设计见**：[V9_ARCHITECTURE.md](V9_ARCHITECTURE.md)
+> **市场记忆设计见**：[MARKET_MEMORY_SUMMARY.md](MARKET_MEMORY_SUMMARY.md)
