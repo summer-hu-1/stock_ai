@@ -5,6 +5,22 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+# 初始化 session_state（防止刷新后丢失登录状态）
+def init_session_state():
+    """初始化会话状态"""
+    defaults = {
+        'app_initialized': True,
+        'user': None,
+        'username': None,
+        'role': None,
+        'membership': None,
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+init_session_state()
+
 # 先初始化数据库（确保表存在）
 from database.db import init_db
 init_db()
@@ -49,131 +65,154 @@ except Exception as e:
     st.sidebar.error(f"初始化用户失败: {e}")
 
 # 先检查登录状态
-from auth.auth import is_logged_in, get_user_quota_info
+from auth.auth import is_logged_in, get_user_quota_info, get_user_info, set_session_user
+from auth.pages import show_login_page
+from database.db import get_db, get_user_by_username
+import base64
+import json
 
-# 如果未登录，显示登录页面
-if not is_logged_in():
-    from auth.pages import show_login_page
+# 检查是否有登录会话
+# 尝试从 query params 恢复会话
+query_params = st.query_params
+session_data = query_params.get("s")
+logged_in = is_logged_in()
+
+st.write(f"[调试] session存在: {session_data is not None}, 已登录: {logged_in}")
+
+if session_data and not logged_in:
+    try:
+        decoded = base64.b64decode(session_data).decode('utf-8')
+        user_data = json.loads(decoded)
+        username = user_data.get("username", "无")
+        st.write(f"[调试] 尝试恢复用户: {username}")
+        set_session_user(user_data)
+        logged_in = True
+        st.success("会话已恢复!")
+    except Exception as e:
+        st.error(f"恢复失败: {e}")
+
+if not logged_in:
     show_login_page()
-else:
-    # 登录后才导入业务模块
-    from modules.storage import init_db, save_analysis, save_market_sentiment, get_all_companies, save_company_info, get_company_by_code, get_all_stocks, get_stock_history, get_market_sentiment_history, get_cached_market_sentiment
-    from deepseek import stock_review, check_balance
-    from modules.market_data import get_stock_data, get_stock_data_fast
-    from modules.market_sentiment import get_market_sentiment, get_hot_sectors, analyze_sentiment
+    st.stop()
 
-    init_db()
-    def load_company_data():
-        """从 akshare 加载全量公司信息到数据库"""
-        import akshare as ak
-        try:
-            with st.spinner("📊 正在加载公司数据..."):
-                df = ak.stock_zh_a_spot_em()
-                if df is not None and not df.empty:
-                    companies = []
-                    for _, row in df.iterrows():
-                        companies.append({
-                            "code": str(row.get("代码", "")),
-                            "name": str(row.get("名称", "")),
-                            "industry": str(row.get("行业", "")) if "行业" in row else ""
-                        })
-                    save_company_info(companies)
-                    st.success(f"✅ 已加载 {len(companies)} 条公司信息")
-                    return True
-        except Exception as e:
-            st.error(f"加载公司数据失败: {e}")
-        return False
+from modules.storage import init_db, save_analysis, save_market_sentiment, get_all_companies, save_company_info, get_company_by_code, get_all_stocks, get_stock_history, get_market_sentiment_history, get_cached_market_sentiment
+from deepseek import stock_review, check_balance
+from modules.market_data import get_stock_data, get_stock_data_fast
+from modules.market_sentiment import get_market_sentiment, get_hot_sectors, analyze_sentiment
 
+init_db()
 
-    def get_company_list():
-        """获取公司列表，用于下拉选择"""
-        companies = get_all_companies()
-        if not companies:
-            return None
-        return companies
+def load_company_data():
+    """从 akshare 加载全量公司信息到数据库"""
+    import akshare as ak
+    try:
+        with st.spinner("📊 正在加载公司数据..."):
+            df = ak.stock_zh_a_spot_em()
+            if df is not None and not df.empty:
+                companies = []
+                for _, row in df.iterrows():
+                    companies.append({
+                        "code": str(row.get("代码", "")),
+                        "name": str(row.get("名称", "")),
+                        "industry": str(row.get("行业", "")) if "行业" in row else ""
+                    })
+                save_company_info(companies)
+                st.success(f"✅ 已加载 {len(companies)} 条公司信息")
+                return True
+    except Exception as e:
+        st.error(f"加载公司数据失败: {e}")
+    return False
 
 
-    st.set_page_config(page_title="AI股票复盘系统 V6", page_icon="🧠", layout="wide")
-    st.title("🧠 AI股票复盘系统（多Agent架构版）")
+def get_company_list():
+    """获取公司列表，用于下拉选择"""
+    companies = get_all_companies()
+    if not companies:
+        return None
+    return companies
 
-    # 显示用户信息侧边栏
-    from auth.pages import show_user_info
-    show_user_info()
 
-    # 模型选择区域
-    from core.model_config import (
-        get_all_models, 
-        get_current_model, 
-        set_current_model, 
-        format_price_info,
-        get_model_display_name,
-        get_model_description
+st.set_page_config(page_title="AI股票复盘系统 V6", page_icon="🧠", layout="wide")
+st.title("🧠 AI股票复盘系统（多Agent架构版）")
+
+# 显示用户信息侧边栏
+from auth.pages import show_user_info
+show_user_info()
+
+# 模型选择区域
+from core.model_config import (
+    get_all_models,
+    get_current_model,
+    set_current_model,
+    format_price_info,
+    get_model_display_name,
+    get_model_description
+)
+
+col_model, col_api_check, col_quota = st.columns([3, 1, 1])
+
+with col_model:
+    models = get_all_models()
+    current_model = get_current_model()
+
+    model_options = {f"{m['display_name']} - {m['description']}": m["name"] for m in models}
+
+    selected_model_display = next(k for k, v in model_options.items() if v == current_model)
+
+    selected_model = st.selectbox(
+        "🤖 选择AI模型",
+        options=list(model_options.keys()),
+        index=list(model_options.values()).index(current_model),
+        key="model_selector"
     )
 
-    col_model, col_api_check, col_quota = st.columns([3, 1, 1])
+    selected_model_name = model_options[selected_model]
+    selected_model_config = next(m for m in models if m["name"] == selected_model_name)
 
-    with col_model:
-        models = get_all_models()
-        current_model = get_current_model()
-        
-        model_options = {f"{m['display_name']} - {m['description']}": m["name"] for m in models}
-        
-        selected_model_display = next(k for k, v in model_options.items() if v == current_model)
-        
-        selected_model = st.selectbox(
-            "🤖 选择AI模型",
-            options=list(model_options.keys()),
-            index=list(model_options.values()).index(current_model),
-            key="model_selector"
+    if selected_model_name != current_model:
+        if set_current_model(selected_model_name):
+            st.success(f"✅ 已切换到 {selected_model_config['display_name']}")
+            st.rerun()
+
+    st.caption(f"{format_price_info(selected_model_config)} | Max Tokens: {selected_model_config['max_tokens']}")
+
+with col_api_check:
+    api_status = check_balance()
+    if api_status[0]:
+        st.success("✅ API正常")
+    else:
+        st.error(f"❌ {api_status[1]}")
+
+with col_quota:
+    quota_info = get_user_quota_info()
+    if quota_info['unlimited']:
+        st.info("🎉 无限分析次数")
+    else:
+        st.caption(f"今日配额: {quota_info['used']}/{quota_info['limit']}")
+
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠 多Agent分析（完整）", "📊 各Agent详情", "📈 历史记录", "📅 情绪周期", "📈 日线数据"])
+
+with tab1:
+    st.header("⚡ 单Prompt分析（快速）")
+
+    # 使用共享组件
+    from ui.components import stock_selector_with_market
+
+    stock, stock_name, market = stock_selector_with_market(
+        key_prefix="single",
+        default_market="cn",
+        show_refresh=True,
+        on_refresh_callback=load_company_data
+    )
+
+    col1, col2, col3, col4 = st.columns([3, 1, 1, 2])
+    with col1:
+        selected_date = st.date_input(
+            "日期选择",
+            value=datetime.now(),
+            key="date_single",
+            help="选择要分析的日期（极速模式下可用）"
         )
-        
-        selected_model_name = model_options[selected_model]
-        selected_model_config = next(m for m in models if m["name"] == selected_model_name)
-        
-        if selected_model_name != current_model:
-            if set_current_model(selected_model_name):
-                st.success(f"✅ 已切换到 {selected_model_config['display_name']}")
-                st.rerun()
-        
-        st.caption(f"{format_price_info(selected_model_config)} | Max Tokens: {selected_model_config['max_tokens']}")
-
-    with col_api_check:
-        api_status = check_balance()
-        if api_status[0]:
-            st.success("✅ API正常")
-        else:
-            st.error(f"❌ {api_status[1]}")
-
-    with col_quota:
-        quota_info = get_user_quota_info()
-        if quota_info['unlimited']:
-            st.info("🎉 无限分析次数")
-        else:
-            st.caption(f"今日配额: {quota_info['used']}/{quota_info['limit']}")
-
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠 多Agent分析（完整）", "📊 各Agent详情", "📈 历史记录", "📅 情绪周期", "📈 日线数据"])
-
-    with tab1:
-        st.header("⚡ 单Prompt分析（快速）")
-
-        # 使用共享组件
-        from ui.components import stock_selector_with_market
-
-        stock, stock_name, market = stock_selector_with_market(
-            key_prefix="single",
-            default_market="cn",
-            show_refresh=True,
-            on_refresh_callback=load_company_data
-        )
-
-        col1, col2, col3, col4 = st.columns([3, 1, 1, 2])
-        with col1:
-            selected_date = st.date_input(
-                "日期选择", 
-                value=datetime.now(),
-                key="date_single",
-                help="选择要分析的日期（极速模式下可用）"
-            )
 
         with col3:
             api_placeholder = st.empty()

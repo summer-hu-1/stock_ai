@@ -91,8 +91,12 @@ def login_user(username: str, password: str) -> tuple:
     }
     
     add_log(db, username, "login")
-    
-    return True, "登录成功", user_dict
+
+    # 生成会话令牌
+    import secrets
+    session_token = secrets.token_hex(16)
+
+    return True, "登录成功", user_dict, session_token
 
 
 def logout_user():
@@ -101,7 +105,7 @@ def logout_user():
         username = st.session_state["user"]["username"]
         db = next(get_db())
         add_log(db, username, "logout")
-    
+
     # 清除会话状态
     keys_to_remove = ["user", "username", "role", "membership"]
     for key in keys_to_remove:
@@ -109,12 +113,15 @@ def logout_user():
             del st.session_state[key]
 
 
-def set_session_user(user_dict: dict):
+def set_session_user(user_dict: dict, session_token: str = None):
     """设置会话用户"""
     st.session_state["user"] = user_dict
     st.session_state["username"] = user_dict["username"]
     st.session_state["role"] = user_dict["role"]
     st.session_state["membership"] = user_dict["membership"]
+    # 保存 session token
+    if session_token:
+        st.session_state["session_token"] = session_token
 
 
 def is_logged_in() -> bool:

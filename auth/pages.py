@@ -44,20 +44,35 @@ def show_login_page():
                 st.write("")
             
             submitted = st.form_submit_button("登录", use_container_width=True)
-            
+
             if submitted:
                 if not username or not password:
                     st.error("请填写用户名和密码")
                 else:
                     with st.spinner("正在验证..."):
-                        success, message, user = login_user(username, password)
-                        
-                        if success:
-                            set_session_user(user)
-                            st.success(message)
-                            st.rerun()
+                        result = login_user(username, password)
+                        import base64
+                        import json
+
+                        if len(result) == 4:
+                            success, message, user, token = result
+                            if success:
+                                set_session_user(user, token)
+                                # 保存 session 到 query params 以便刷新后恢复
+                                session_data = base64.b64encode(json.dumps(user).encode('utf-8')).decode('utf-8')
+                                st.query_params["s"] = session_data
+                                st.success(message + " 正在跳转...")
+                                st.rerun()
+                            else:
+                                st.error(f"登录失败: {message}")
                         else:
-                            st.error(f"登录失败: {message}")
+                            success, message, user = result
+                            if success:
+                                set_session_user(user)
+                                st.success(message)
+                                st.rerun()
+                            else:
+                                st.error(f"登录失败: {message}")
     
     with tab2:
         st.header("📝 用户注册")
