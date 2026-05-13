@@ -107,10 +107,13 @@ def logout_user():
         add_log(db, username, "logout")
 
     # 清除会话状态
-    keys_to_remove = ["user", "username", "role", "membership"]
+    keys_to_remove = ["user", "username", "role", "membership", "session_token"]
     for key in keys_to_remove:
         if key in st.session_state:
             del st.session_state[key]
+    
+    # 清除 URL 中的会话数据（防止刷新后自动恢复登录）
+    st.query_params.clear()
 
 
 def set_session_user(user_dict: dict, session_token: str = None):
