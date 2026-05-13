@@ -325,35 +325,56 @@ def test_api_connection():
     
     return results
 
-def get_stock_data(stock_code, use_cache=True, target_date=None):
+def get_stock_data(stock_code, market="cn", use_cache=True, target_date=None):
     """
-    获取A股基础行情数据
-    use_cache: 是否使用缓存
-    target_date: 目标日期，datetime对象或字符串(YYYY-MM-DD/YYYYMMDD)，None为最近交易日
+    获取股票行情数据（支持多市场）
+    
+    Args:
+        stock_code: 股票代码
+        market: 市场（cn/hk/us）
+        use_cache: 是否使用缓存
+        target_date: 目标日期，datetime 对象或字符串 (YYYY-MM-DD/YYYYMMDD)，None 为最近交易日
+    
+    Returns:
+        Dict: 股票数据
     """
     global _stock_data_cache, _stock_data_cache_time, _USE_MOCK_DATA
 
     if _USE_MOCK_DATA:
-        print(f"📋 使用模拟数据: {stock_code}")
+        print(f"📋 使用模拟数据：{stock_code}")
         return get_mock_stock_data(stock_code)
 
     # 如果指定了日期，优先使用极速模式获取历史数据
     if target_date is not None:
         print(f"📅 指定日期 {target_date}，使用极速模式获取历史数据")
         # 有指定日期时不使用缓存，确保获取最新选择的数据
-        return get_stock_data_fast(stock_code, use_cache=False, target_date=target_date)
+        return get_stock_data_fast(stock_code, market, use_cache=False, target_date=target_date)
 
+    # 根据市场选择不同的数据源
+    if market == "cn":
+        return _get_cn_stock_data(stock_code, use_cache)
+    elif market == "hk":
+        return _get_hk_stock_data(stock_code, use_cache)
+    elif market == "us":
+        return _get_us_stock_data(stock_code, use_cache)
+    else:
+        print(f"⚠️ 不支持的市场：{market}，默认使用 A 股数据源")
+        return _get_cn_stock_data(stock_code, use_cache)
+
+
+def _get_cn_stock_data(stock_code, use_cache=True):
+    """获取 A 股数据"""
     current_time = time.time()
     if use_cache and stock_code in _stock_data_cache:
         if current_time - _stock_data_cache_time.get(stock_code, 0) < _stock_data_cache_ttl:
-            print(f"📦 使用缓存的股票数据: {stock_code}")
+            print(f"📦 使用缓存的股票数据：{stock_code}")
             return _stock_data_cache[stock_code]
 
     try:
-        print(f"正在获取股票数据: {stock_code}")
+        print(f"正在获取 A 股股票数据：{stock_code}")
         df = ak.stock_zh_a_spot_em()
 
-        # akshare可能在内部捕获异常并返回None，需要检查
+        # akshare 可能在内部捕获异常并返回 None，需要检查
         if df is None:
             print(f"警告: API返回None，尝试使用备用数据源（雪球API）")
             xueqiu_data = get_stock_data_from_xueqiu(stock_code)
@@ -441,17 +462,137 @@ def get_stock_data(stock_code, use_cache=True, target_date=None):
         return None
 
 
-def get_stock_data_fast(stock_code, use_cache=True, target_date=None):
+def _get_hk_stock_data(stock_code, use_cache=True):
+    """获取港股数据"""
+    current_time = time.time()
+    if use_cache and stock_code in _stock_data_cache:
+        if current_time - _stock_data_cache_time.get(stock_code, 0) < _stock_data_cache_ttl:
+            print(f"📦 使用缓存的港股数据：{stock_code}")
+            return _stock_data_cache[stock_code]
+
+    try:
+        print(f"正在获取港股股票数据：{stock_code}")
+        # 使用 akshare 获取港股数据
+        df = ak.stock_hk_spot_em()
+        
+        if df is None or df.empty:
+            print(f"⚠️ 港股 API 返回为空，尝试备用数据源")
+            return None
+        
+        # 港股代码需要补零到 5 位
+        stock_code_padded = str(stock_code).zfill(5)
+        
+        # 查找对应的股票
+        stock = df[df["代码"] == stock_code_padded]
+        
+        if stock.empty:
+            print(f"未找到港股：{stock_code_padded}")
+            return None
+        
+        data = stock.iloc[0]
+        
+        result = {
+            "code": stock_code_padded,
+            "name": data.get("名称", "未知"),
+            "price": float(data.get("最新价", 0)) if pd.notna(data.get("最新价")) else 0.0,
+            "price_change_pct": float(data.get("涨跌幅", 0)) if pd.notna(data.get("涨跌幅")) else 0.0,
+            "volume": float(data.get("成交额", 0)) if pd.notna(data.get("成交额")) else 0.0,
+            "turnover_rate": 0.0,  # 港股 API 不提供换手率
+            "amplitude": float(data.get("振幅", 0)) if pd.notna(data.get("振幅")) else 0.0,
+            "volume_ratio": 0.0,  # 港股 API 不提供量比
+            "high": float(data.get("最高", 0)) if pd.notna(data.get("最高")) else 0.0,
+            "low": float(data.get("最低", 0)) if pd.notna(data.get("最低")) else 0.0,
+            "open": float(data.get("今开", 0)) if pd.notna(data.get("今开")) else 0.0,
+            "close": float(data.get("昨收", 0)) if pd.notna(data.get("昨收")) else 0.0,
+            "market_cap": float(data.get("总市值", 0)) if pd.notna(data.get("总市值")) else 0.0,
+            "limit_status": "正常"  # 港股无涨跌幅限制
+        }
+        
+        _stock_data_cache[stock_code] = result
+        _stock_data_cache_time[stock_code] = current_time
+        print(f"✅ 港股数据获取成功：{stock_code}")
+        return result
+        
+    except Exception as e:
+        print(f"获取港股数据失败：{e}")
+        if stock_code in _stock_data_cache:
+            return _stock_data_cache[stock_code]
+        return None
+
+
+def _get_us_stock_data(stock_code, use_cache=True):
+    """获取美股数据"""
+    current_time = time.time()
+    if use_cache and stock_code in _stock_data_cache:
+        if current_time - _stock_data_cache_time.get(stock_code, 0) < _stock_data_cache_ttl:
+            print(f"📦 使用缓存的美股数据：{stock_code}")
+            return _stock_data_cache[stock_code]
+
+    try:
+        print(f"正在获取美股股票数据：{stock_code}")
+        # 使用 akshare 获取美股数据
+        df = ak.stock_us_spot_em()
+        
+        if df is None or df.empty:
+            print(f"⚠️ 美股 API 返回为空，尝试备用数据源")
+            return None
+        
+        # 查找对应的股票（美股使用代码或名称匹配）
+        stock = df[df["代码"] == stock_code]
+        
+        if stock.empty:
+            # 尝试用名称匹配
+            stock = df[df["名称"] == stock_code]
+        
+        if stock.empty:
+            print(f"未找到美股：{stock_code}")
+            return None
+        
+        data = stock.iloc[0]
+        
+        result = {
+            "code": stock_code,
+            "name": data.get("名称", "未知"),
+            "price": float(data.get("最新价", 0)) if pd.notna(data.get("最新价")) else 0.0,
+            "price_change_pct": float(data.get("涨跌幅", 0)) if pd.notna(data.get("涨跌幅")) else 0.0,
+            "volume": float(data.get("成交量", 0)) if pd.notna(data.get("成交量")) else 0.0,
+            "turnover_rate": 0.0,  # 美股 API 不提供换手率
+            "amplitude": 0.0,  # 美股 API 不提供振幅
+            "volume_ratio": 0.0,  # 美股 API 不提供量比
+            "high": float(data.get("最高价", 0)) if pd.notna(data.get("最高价")) else 0.0,
+            "low": float(data.get("最低价", 0)) if pd.notna(data.get("最低价")) else 0.0,
+            "open": float(data.get("开盘价", 0)) if pd.notna(data.get("开盘价")) else 0.0,
+            "close": float(data.get("昨收价", 0)) if pd.notna(data.get("昨收价")) else 0.0,
+            "market_cap": float(data.get("总市值", 0)) if pd.notna(data.get("总市值")) else 0.0,
+            "limit_status": "正常"  # 美股无涨跌幅限制
+        }
+        
+        _stock_data_cache[stock_code] = result
+        _stock_data_cache_time[stock_code] = current_time
+        print(f"✅ 美股数据获取成功：{stock_code}")
+        return result
+        
+    except Exception as e:
+        print(f"获取美股数据失败：{e}")
+        if stock_code in _stock_data_cache:
+            return _stock_data_cache[stock_code]
+        return None
+
+
+def get_stock_data_fast(stock_code, market="cn", use_cache=True, target_date=None):
     """
-    极速模式获取A股行情数据 - 优先使用本地CSV数据，支持历史日期
+    极速模式获取股票行情数据 - 优先使用本地 CSV 数据，支持历史日期
     
     Args:
-        target_date: 目标日期，datetime对象或字符串(YYYY-MM-DD/YYYYMMDD)，None为最近交易日
+        stock_code: 股票代码
+        market: 市场（cn/hk/us）
+        use_cache: 是否使用缓存
+        target_date: 目标日期，datetime 对象或字符串 (YYYY-MM-DD/YYYYMMDD)，None 为最近交易日
     """
     global _stock_data_cache, _stock_data_cache_time, _USE_MOCK_DATA
 
     if _USE_MOCK_DATA:
-        print(f"📋 使用模拟数据: {stock_code}")
+        print(f"📋 使用模拟数据：{stock_code}")
         return get_mock_stock_data(stock_code)
 
     current_time = time.time()
@@ -466,22 +607,22 @@ def get_stock_data_fast(stock_code, use_cache=True, target_date=None):
         else:
             date_str = target_date.strftime('%Y%m%d')
     
-    cache_key = f"{stock_code}_fast_{date_str}"
+    cache_key = f"{stock_code}_fast_{market}_{date_str}"
     if use_cache and cache_key in _stock_data_cache:
         if current_time - _stock_data_cache_time.get(cache_key, 0) < _stock_data_cache_ttl:
-            print(f"📦 使用缓存的极速股票数据: {stock_code} @ {date_str}")
+            print(f"📦 使用缓存的极速股票数据：{stock_code} @ {date_str}")
             return _stock_data_cache[cache_key]
 
-    # 优先使用本地CSV数据
+    # 优先使用本地 CSV 数据
     try:
-        print(f"📂 尝试从本地CSV获取数据: {stock_code}")
+        print(f"📂 尝试从本地 CSV 获取数据：{stock_code} (市场：{market})")
         from core.csv_provider import CSVProvider
         
         csv_provider = CSVProvider()
-        csv_df = csv_provider.get_stock_daily(stock_code)
+        csv_df = csv_provider.get_stock_daily(stock_code, market)
         
         if csv_df is not None and not csv_df.empty:
-            print(f"✅ 本地CSV数据可用")
+            print(f"✅ 本地 CSV 数据可用")
             
             # 根据target_date筛选数据
             if target_date is not None:

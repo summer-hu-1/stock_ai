@@ -12,11 +12,18 @@ from datetime import datetime, timedelta
 
 
 class CSVProvider:
-    """CSV数据提供者类"""
+    """CSV 数据提供者类"""
+    
+    # 市场目录映射
+    MARKET_DIR_MAP = {
+        "cn": "cn/daily",
+        "hk": "hk/daily",
+        "us": "us/daily"
+    }
     
     def __init__(self, data_dir: str = None):
         """
-        初始化CSVProvider
+        初始化 CSVProvider
         
         Args:
             data_dir: 数据目录路径，默认为 data/cn/daily
@@ -24,28 +31,34 @@ class CSVProvider:
         if data_dir is None:
             script_dir = os.path.dirname(os.path.abspath(__file__))
             project_dir = os.path.dirname(script_dir)
-            data_dir = os.path.join(project_dir, "data", "cn", "daily")
-        
-        self.data_dir = data_dir
+            self.base_data_dir = os.path.join(project_dir, "data")
+        else:
+            self.base_data_dir = data_dir
     
-    def get_stock_daily(self, code: str, start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
+    def get_stock_daily(self, code: str, market: str = "cn", start_date: str = None, end_date: str = None) -> Optional[pd.DataFrame]:
         """
         获取股票日线数据
         
         Args:
-            code: 股票代码 (如: "000002", "600519")
-            start_date: 开始日期 (格式: "YYYY-MM-DD" 或 "YYYYMMDD")
-            end_date: 结束日期 (格式: "YYYY-MM-DD" 或 "YYYYMMDD")
+            code: 股票代码 (如："000002", "600519")
+            market: 市场（cn/hk/us）
+            start_date: 开始日期 (格式："YYYY-MM-DD" 或 "YYYYMMDD")
+            end_date: 结束日期 (格式："YYYY-MM-DD" 或 "YYYYMMDD")
         
         Returns:
-            DataFrame: 包含日线数据的DataFrame，失败返回None
+            DataFrame: 包含日线数据的 DataFrame，失败返回 None
         
-        CSV列:
+        CSV 列:
             date, open, high, low, close, volume, amount, 
             amplitude, price_change_pct, turnover_rate
         """
         code = str(code).zfill(6)
-        path = os.path.join(self.data_dir, f"{code}.csv")
+        
+        # 根据市场选择数据目录
+        market_subdir = self.MARKET_DIR_MAP.get(market, "cn/daily")
+        data_dir = os.path.join(self.base_data_dir, market_subdir)
+        
+        path = os.path.join(data_dir, f"{code}.csv")
         
         if not os.path.exists(path):
             return None
@@ -69,7 +82,7 @@ class CSVProvider:
             return df
             
         except Exception as e:
-            print(f"读取股票 {code} 数据失败: {e}")
+            print(f"读取股票 {code} 数据失败：{e}")
             return None
     
     def get_stock_info(self, code: str) -> Optional[Dict]:

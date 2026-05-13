@@ -44,33 +44,34 @@ class AnalysisPipeline:
         
         logger.info("✅ 分析管线初始化完成")
     
-    def load_data(self, stock_code: str) -> Optional[Any]:
+    def load_data(self, stock_code: str, market: str = "cn") -> Optional[Any]:
         """
-        步骤1: 加载股票数据
+        步骤 1: 加载股票数据
         
         数据获取策略：
-        1. 优先从本地CSV获取
+        1. 优先从本地 CSV 获取
         2. 如果本地没有，尝试从网络获取
         
         Args:
             stock_code: 股票代码
+            market: 市场（cn/hk/us）
         
         Returns:
             DataFrame: 股票日线数据
         """
-        logger.info(f"📊 加载股票数据: {stock_code}")
+        logger.info(f"📊 加载股票数据：{stock_code} (市场：{market})")
         try:
-            # 策略1: 优先从本地CSV获取
-            df = self.data_provider.get_stock_daily(stock_code)
+            # 策略 1: 优先从本地 CSV 获取
+            df = self.data_provider.get_stock_daily(stock_code, market)
             if df is not None and not df.empty:
                 logger.info(f"✅ 从本地CSV加载 {len(df)} 条数据")
                 return df
             
-            # 策略2: 本地没有，尝试从网络获取历史数据
+            # 策略 2: 本地没有，尝试从网络获取历史数据
             logger.warning(f"⚠️ 本地没有 {stock_code} 的数据，尝试网络获取...")
             try:
                 from modules.market_data import get_stock_data_fast
-                stock_data = get_stock_data_fast(stock_code)
+                stock_data = get_stock_data_fast(stock_code, market)
                 if stock_data and stock_data.get('data'):
                     logger.info(f"✅ 从网络获取历史数据成功")
                     import pandas as pd
@@ -80,10 +81,10 @@ class AnalysisPipeline:
             except Exception as e:
                 logger.warning(f"⚠️ 网络获取历史数据失败: {e}")
             
-            # 策略3: 如果历史数据获取失败，尝试获取实时数据作为备选
+            # 策略 3: 如果历史数据获取失败，尝试获取实时数据作为备选
             try:
                 from modules.market_data import get_stock_data
-                realtime_data = get_stock_data(stock_code)
+                realtime_data = get_stock_data(stock_code, market)
                 if realtime_data:
                     logger.info(f"✅ 获取到实时数据（但可能不足以进行完整分析）")
                     # 创建包含实时数据的简单DataFrame
@@ -129,7 +130,7 @@ class AnalysisPipeline:
         
         try:
             # 1. 数据加载
-            df = self.load_data(stock_code)
+            df = self.load_data(stock_code, market)
             if df is None:
                 return {
                     "success": False,

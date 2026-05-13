@@ -345,6 +345,7 @@ else:
 
         # 使用共享组件
         from ui.components import stock_selector_with_market
+        from services import get_analysis_service
 
         stock, stock_name, market = stock_selector_with_market(
             key_prefix="multi",
@@ -363,15 +364,13 @@ else:
             else:
                 progress_bar = st.progress(0, text="准备开始...")
 
-                # 使用统一Pipeline进行分析
-                from core.analysis_pipeline import get_pipeline
+                # 使用 AnalysisService 进行分析
+                analysis_service = get_analysis_service()
                 
-                progress_bar.progress(30, text="🔧 初始化分析管线...")
-                pipeline = get_pipeline()
-
+                progress_bar.progress(30, text="🔧 初始化分析服务...")
                 progress_bar.progress(50, text="🚀 执行完整分析流程...")
                 with st.spinner("🔄 正在执行分析..."):
-                    result = pipeline.analyze(stock, market=market)
+                    result = analysis_service.analyze_stock(stock, market=market)
 
                 # 记录使用次数
                 record_analysis_usage()
@@ -393,7 +392,7 @@ else:
                     with st.expander("📋 分析摘要", expanded=True):
                         cols = st.columns(4)
                         with cols[0]:
-                            st.metric("综合评分", f"{result['score']}/100")
+                            st.metric("综合评分", f"{result.get('score', 0)}/100")
                         with cols[1]:
                             st.metric("风险等级", result.get("risk_level", "中"))
                         with cols[2]:
@@ -529,7 +528,8 @@ else:
 
     with tab5:
         st.header("📅 市场情绪周期")
-        from core.market_memory import MarketMemory
+        from services import get_market_service
+        market_service = get_market_service()
 
         @st.cache_data(ttl=300)
         def cached_get_sentiment_history():
@@ -549,8 +549,7 @@ else:
         with col_snapshot:
             if st.button("📸 生成市场快照"):
                 sentiment = analyze_sentiment()
-                memory = MarketMemory()
-                success = memory.save_snapshot(sentiment)
+                success = market_service.save_market_snapshot(sentiment)
                 if success:
                     st.success("✅ 市场快照已保存")
                 else:
@@ -608,53 +607,56 @@ else:
         st.divider()
         st.subheader("🧠 市场记忆 - 历史趋势分析")
 
-        memory = MarketMemory()
-        context = memory.get_market_context(days=5)
+        market_cycle_info = market_service.get_market_cycle(days=5)
+        emotion_trend = market_service.get_emotion_trend(days=5)
+        sector_rotation = market_service.get_sector_rotation(days=5)
+        leader_rotation = market_service.get_leader_rotation(days=5)
 
-        if context.get("has_context"):
+        if market_cycle_info.get("cycle") != "未知":
             col_cycle, col_emotion = st.columns(2)
             with col_cycle:
-                st.info(f"**📊 市场周期**：{context['market_cycle']['cycle']}（{context['market_cycle']['stage']}）")
-                st.caption(context['market_cycle']['description'])
+                st.info(f"**📊 市场周期**：{market_cycle_info['cycle']}（{market_cycle_info['stage']}）")
+                st.caption(market_cycle_info['description'])
 
             with col_emotion:
                 trend_emoji = {
                     "上升": "📈",
                     "下降": "📉",
                     "震荡": "⚡"
-                }.get(context['emotion_trend']['direction'], "❓")
-                st.info(f"**{trend_emoji} 情绪趋势**：{context['emotion_trend']['direction']}")
-                st.caption(context['emotion_trend']['description'])
+                }.get(emotion_trend.get('direction', '未知'), "❓")
+                st.info(f"**{trend_emoji} 情绪趋势**：{emotion_trend.get('direction', '未知')}")
+                st.caption(emotion_trend.get('description', ''))
 
             col_sector, col_leader = st.columns(2)
             with col_sector:
                 st.info(f"**🔄 板块轮动**")
-                st.caption(context['sector_rotation']['description'])
+                st.caption(sector_rotation.get('description', ''))
 
             with col_leader:
                 st.info(f"**🐉 龙头切换**")
-                st.caption(context['leader_rotation']['description'])
+                st.caption(leader_rotation.get('description', ''))
 
             col_risk = st.columns(1)
             with col_risk[0]:
+                context = market_service.get_market_context(days=5)
                 risk_emoji = {
                     "上升": "⚠️",
                     "下降": "✅",
                     "稳定": "➖"
-                }.get(context['risk_change']['trend'], "❓")
-                st.info(f"**{risk_emoji} 风险变化**：{context['risk_change']['trend']}")
-                st.caption(context['risk_change']['description'])
+                }.get(context.get('risk_change', {}).get('trend', '未知'), "❓")
+                st.info(f"**{risk_emoji} 风险变化**：{context.get('risk_change', {}).get('trend', '未知')}")
+                st.caption(context.get('risk_change', {}).get('description', ''))
 
             st.divider()
             st.subheader("📈 趋势图表")
 
-            snapshots = memory.get_recent_snapshots(10)
-            if len(snapshots) >= 2:
+            recent_snapshots = market_service.get_recent_snapshots(10)
+            if len(recent_snapshots) >= 2:
                 import pandas as pd
 
-                dates = [s.date for s in reversed(snapshots)]
-                emotion_scores = [s.emotion_score for s in reversed(snapshots)]
-                limit_ups = [s.limit_up_count for s in reversed(snapshots)]
+                dates = [s['date'] for s in reversed(recent_snapshots)]
+                emotion_scores = [s['emotion_score'] for s in reversed(recent_snapshots)]
+                limit_ups = [s['limit_up_count'] for s in reversed(recent_snapshots)]
 
                 chart_df = pd.DataFrame({
                     "日期": dates,
@@ -680,61 +682,62 @@ else:
         with col_generate:
             if st.button("🧠 生成AI洞察", key="generate_insight"):
                 with st.spinner("🤖 AI正在分析市场..."):
-                    insight = memory.generate_market_insight(days=insight_days)
-                    memory.save_insight(insight)
-                    st.success("✅ AI洞察已生成并保存")
-                    st.rerun()
+                    result = market_service.generate_market_insight(days=insight_days)
+                    if result.get("success"):
+                        st.success("✅ AI洞察已生成并保存")
+                        st.rerun()
 
-        latest_insight = memory.get_latest_insight()
+        latest_insight = market_service.get_latest_insight()
         if latest_insight:
             col_state, col_confidence = st.columns([3, 1])
             with col_state:
-                st.info(f"**📊 市场状态**：{latest_insight.current_state}")
-                st.caption(latest_insight.state_description)
+                st.info(f"**📊 市场状态**：{latest_insight.get('current_state', '未知')}")
+                st.caption(latest_insight.get('state_description', ''))
             with col_confidence:
-                confidence_color = "🟢" if latest_insight.confidence > 0.8 else "🟡" if latest_insight.confidence > 0.6 else "🔴"
-                st.metric(f"{confidence_color} 置信度", f"{latest_insight.confidence*100:.0f}%")
+                confidence = latest_insight.get('confidence', 0)
+                confidence_color = "🟢" if confidence > 0.8 else "🟡" if confidence > 0.6 else "🔴"
+                st.metric(f"{confidence_color} 置信度", f"{confidence*100:.0f}%")
 
             col_trend, col_risk = st.columns(2)
             with col_trend:
                 with st.expander("📈 趋势分析", expanded=True):
-                    st.markdown(latest_insight.trend_analysis)
+                    st.markdown(latest_insight.get('trend_analysis', ''))
 
             with col_risk:
                 with st.expander("⚠️ 风险提示", expanded=True):
-                    st.warning(latest_insight.risk_alert)
+                    st.warning(latest_insight.get('risk_alert', ''))
 
             col_opp, col_action = st.columns(2)
             with col_opp:
                 with st.expander("💡 机会提示", expanded=True):
-                    st.success(latest_insight.opportunity)
+                    st.success(latest_insight.get('opportunity', ''))
 
             with col_action:
                 with st.expander("🎯 操作建议", expanded=True):
-                    st.info(latest_insight.action_suggestion)
+                    st.info(latest_insight.get('action_suggestion', ''))
 
-            if latest_insight.key_changes:
+            if latest_insight.get('key_changes'):
                 with st.expander("🔑 关键观察点"):
-                    for change in latest_insight.key_changes:
+                    for change in latest_insight['key_changes']:
                         st.markdown(f"- {change}")
 
             st.divider()
             st.subheader("📜 历史洞察记录")
 
-            recent_insights = memory.get_recent_insights(10)
+            recent_insights = market_service.get_recent_insights(10)
             if recent_insights:
                 for insight in recent_insights:
-                    with st.expander(f"📅 {insight.date} - {insight.current_state}"):
+                    with st.expander(f"📅 {insight.get('date', '未知')} - {insight.get('current_state', '未知')}"):
                         cols = st.columns(3)
                         with cols[0]:
-                            st.metric("市场状态", insight.current_state)
-                            st.metric("置信度", f"{insight.confidence*100:.0f}%")
+                            st.metric("市场状态", insight.get('current_state', '未知'))
+                            st.metric("置信度", f"{insight.get('confidence', 0)*100:.0f}%")
                         with cols[1]:
                             st.caption("**风险提示**")
-                            st.warning(insight.risk_alert)
+                            st.warning(insight.get('risk_alert', ''))
                         with cols[2]:
                             st.caption("**操作建议**")
-                            st.info(insight.action_suggestion)
+                            st.info(insight.get('action_suggestion', ''))
             else:
                 st.info("📊 暂无历史洞察记录")
         
@@ -752,7 +755,7 @@ else:
                     st.error("❌ 开始日期不能大于结束日期")
                 else:
                     with st.spinner(f"⏳ 正在拉取 {start_date} 到 {end_date} 的快照..."):
-                        result = memory.fetch_date_range(start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
+                        result = market_service.fetch_historical_snapshots(start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
                         st.success(f"✅ 拉取完成！成功: {result['success']} | 失败: {result['failed']} | 跳过: {result['skipped']}")
         
         col_update_days, col_update = st.columns([2, 1])
@@ -761,13 +764,13 @@ else:
         with col_update:
             if st.button("🔄 增量更新快照", key="update_snapshots"):
                 with st.spinner(f"⏳ 正在增量更新最近 {update_days} 天的快照..."):
-                    result = memory.update_missing_snapshots(days=update_days)
+                    result = market_service.update_missing_snapshots(days=update_days)
                     st.success(f"✅ 更新完成！缺失: {result['total_missing']} | 成功: {result['success']} | 失败: {result['failed']}")
         
-        snapshots = memory.get_recent_snapshots(365)
+        snapshots = market_service.get_recent_snapshots(365)
         if snapshots:
-            earliest_date = snapshots[-1].date
-            latest_date = snapshots[0].date
+            earliest_date = snapshots[-1].get('date', snapshots[-1].date if hasattr(snapshots[-1], 'date') else 'N/A')
+            latest_date = snapshots[0].get('date', snapshots[0].date if hasattr(snapshots[0], 'date') else 'N/A')
             st.info(f"📊 当前已有快照: {len(snapshots)} 天（{earliest_date} 至 {latest_date}）")
         else:
             st.info("📊 当前暂无快照数据")
@@ -790,9 +793,8 @@ else:
             'sz_gem': {'name': '创业板', 'color': '#F39C12'}
         }
 
-        from data_sync.data_sync_manager import DataSyncManager
-
-        sync_manager = DataSyncManager(data_dir=DATA_DIR)
+        from services import get_sync_service
+        sync_service = get_sync_service()
 
         def get_market_from_code(code):
             """根据股票代码判断市场"""
@@ -839,7 +841,8 @@ else:
 
         stocks = get_stock_files()
 
-        existing_count = sync_manager.get_existing_stocks_count()
+        sync_status = sync_service.get_sync_status()
+        existing_count = sync_status.get("existing_stocks", 0)
         total_stocks = len(stocks)
         
         stock_options = [""] + [f"{s['name']} ({s['code']})" for s in stocks]
@@ -880,12 +883,12 @@ else:
                 stock_code = stock_info.get('code', '')
                 if stock_code:
                     with st.spinner("正在增量更新..."):
-                        success, message, count = sync_manager.update_stock_incremental(stock_code, update_date.strftime('%Y-%m-%d'))
-                    if success:
-                        st.success(f"✅ {message}")
+                        result = sync_service.sync_stock_data(stock_code, update_date.strftime('%Y-%m-%d'))
+                    if result.get("success"):
+                        st.success(f"✅ {result.get('message', '更新成功')}")
                         st.rerun()
                     else:
-                        st.error(f"❌ {message}")
+                        st.error(f"❌ {result.get('message', '更新失败')}")
 
         with col_full_btn:
             st.write("")
@@ -898,11 +901,11 @@ else:
                         progress_bar.progress(current / total)
                         status_text.text(message)
                     
-                    result = sync_manager.sync_all_full(progress_callback=progress_callback)
+                    result = sync_service.sync_all_stocks(progress_callback=progress_callback)
                     
                     progress_bar.empty()
                     status_text.empty()
-                    st.success(f"✅ 全量同步完成！成功: {result['success']} 只，失败: {result['failed']} 只")
+                    st.success(f"✅ 全量同步完成！成功: {result.get('success', 0)} 只，失败: {result.get('failed', 0)} 只")
                     st.rerun()
 
         if selected_stock:
