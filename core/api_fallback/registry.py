@@ -213,31 +213,24 @@ def register_default_apis():
 
     def csv_a_stock_hist(code: str, **kwargs) -> Any:
         """本地CSV A股历史数据"""
-        import os
-        import pandas as pd
         import logging
 
         logger = logging.getLogger(__name__)
-        
+
         pure_code = code.replace(".SH", "").replace(".SZ", "").strip()
 
-        # 查找CSV文件
-        data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'cn', 'daily')
-        csv_path = os.path.join(data_dir, f'{pure_code}.csv')
-
-        logger.info(f"📂 尝试读取CSV文件: {csv_path}")
-
-        if not os.path.exists(csv_path):
-            logger.warning(f"⚠️ CSV文件不存在: {csv_path}")
-            return None
+        logger.info(f"📂 尝试通过DataHub读取CSV文件: {pure_code}")
 
         try:
-            df = pd.read_csv(csv_path)
-            logger.info(f"✅ CSV文件读取成功，共 {len(df)} 条记录")
-            
-            if df.empty:
-                logger.warning("⚠️ CSV文件为空")
+            from core.datahub import get_datahub
+            datahub = get_datahub()
+            df = datahub.get_ohlcv_dataframe(pure_code, "cn")
+
+            if df is None or df.empty:
+                logger.warning(f"⚠️ DataHub返回空数据")
                 return None
+
+            logger.info(f"✅ DataHub读取成功，共 {len(df)} 条记录")
 
             # 确保日期列是字符串类型
             if 'date' in df.columns:
@@ -266,22 +259,16 @@ def register_default_apis():
 
     def csv_a_stock_data(code: str, **kwargs) -> Dict[str, Any]:
         """本地CSV A股数据"""
-        import os
-        import pandas as pd
         from datetime import datetime
 
         pure_code = code.replace(".SH", "").replace(".SZ", "").strip()
 
-        # 查找CSV文件
-        data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data', 'cn', 'daily')
-        csv_path = os.path.join(data_dir, f'{pure_code}.csv')
-
-        if not os.path.exists(csv_path):
-            return None
-
         try:
-            df = pd.read_csv(csv_path)
-            if df.empty:
+            from core.datahub import get_datahub
+            datahub = get_datahub()
+            df = datahub.get_ohlcv_dataframe(pure_code, "cn")
+
+            if df is None or df.empty:
                 return None
 
             # 获取最新数据
@@ -306,7 +293,7 @@ def register_default_apis():
                 "market": "A",
             }
         except Exception as e:
-            logger.warning(f"读取CSV失败: {csv_path}, 错误: {e}")
+            logger.warning(f"读取CSV失败: {pure_code}, 错误: {e}")
             return None
 
     # A股 - 市场情绪

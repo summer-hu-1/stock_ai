@@ -870,10 +870,15 @@ with tab1:
             return sorted(files, key=lambda x: x['code'])
 
         def get_stock_data(file_path):
-            full_path = os.path.join(DATA_DIR, file_path)
-            if not os.path.exists(full_path):
-                return None
-            return pd.read_csv(full_path)
+            from core.datahub import get_datahub
+            datahub = get_datahub()
+            parts = file_path.split('/')
+            if len(parts) >= 2:
+                code = parts[1].replace('.csv', '')
+                market = parts[0]
+                df = datahub.get_ohlcv_dataframe(code, market)
+                return df
+            return None
 
         companies = get_company_list()
         code_name_map = {c['code']: c['name'] for c in companies} if companies else {}

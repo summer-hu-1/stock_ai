@@ -1,12 +1,9 @@
 """
-Analysis Pipeline - 统一分析总线
+Analysis Pipeline - 统一分析总线（QuantCore 包装器）
 
-V9 架构：Pipeline 负责"算"，ReportService 负责"解释"
+V10 架构：Pipeline 是 QuantCore 的便捷包装层，保持向后兼容
 
-分析流程：
-1. 数据加载 → 2. 因子计算 → 3. 信号生成 → 4. 龙头识别 → 5. 市场记忆 → 6. 综合评分
-
-采用 Pipeline 驱动架构，而非 UI 驱动架构
+分析流程由 QuantCore 统一负责
 """
 
 import logging
@@ -16,92 +13,22 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-from core.csv_provider import CSVProvider
-from factors.factor_engine import FactorEngine
-from signals.signal_engine import SignalEngine
-from leaders.leader_engine import LeaderEngine
-from core.market_memory import MarketMemory
+from core.quant_core import get_quant_core
+from core.quant_core.models import QuantResult
 
 
 class AnalysisPipeline:
     """
-    统一分析管线
+    统一分析管线（QuantCore 包装器）
 
-    V9 架构下仅负责计算，不调用 Agent
-    Agent 解释由 ReportService 负责
+    保持向后兼容，内部实际调用 QuantCore
     """
 
     def __init__(self):
         """初始化管线"""
-        logger.info("🔧 初始化分析管线...")
-
-        self.data_provider = CSVProvider()
-        self.factor_engine = FactorEngine()
-        self.signal_engine = SignalEngine()
-        self.leader_engine = LeaderEngine()
-        self.market_memory = MarketMemory()
-
+        logger.info("🔧 初始化分析管线（QuantCore 包装器）...")
+        self.quant_core = get_quant_core()
         logger.info("✅ 分析管线初始化完成")
-
-    def load_data(self, stock_code: str, market: str = "cn") -> Optional[Any]:
-        """
-        步骤 1: 加载股票数据
-
-        数据获取策略：
-        1. 优先从本地 CSV 获取
-        2. 如果本地没有，尝试从网络获取
-
-        Args:
-            stock_code: 股票代码
-            market: 市场（cn/hk/us）
-
-        Returns:
-            DataFrame: 股票日线数据
-        """
-        logger.info(f"📊 加载股票数据：{stock_code} (市场：{market})")
-        try:
-            df = self.data_provider.get_stock_daily(stock_code, market)
-            if df is not None and not df.empty:
-                logger.info(f"✅ 从本地CSV加载 {len(df)} 条数据")
-                return df
-
-            logger.warning(f"⚠️ 本地没有 {stock_code} 的数据，尝试网络获取...")
-            try:
-                from modules.market_data import get_stock_data_fast
-                stock_data = get_stock_data_fast(stock_code, market)
-                if stock_data and stock_data.get('data'):
-                    logger.info(f"✅ 从网络获取历史数据成功")
-                    import pandas as pd
-                    df = pd.DataFrame(stock_data['data'])
-                    if not df.empty:
-                        return df
-            except Exception as e:
-                logger.warning(f"⚠️ 网络获取历史数据失败: {e}")
-
-            try:
-                from modules.market_data import get_stock_data
-                realtime_data = get_stock_data(stock_code, market)
-                if realtime_data:
-                    logger.info(f"✅ 获取到实时数据")
-                    import pandas as pd
-                    df = pd.DataFrame([{
-                        'date': pd.Timestamp.now().strftime('%Y-%m-%d'),
-                        'open': realtime_data.get('open', 0),
-                        'close': realtime_data.get('price', 0),
-                        'high': realtime_data.get('high', 0),
-                        'low': realtime_data.get('low', 0),
-                        'volume': realtime_data.get('volume', 0),
-                        'turnover': realtime_data.get('market_cap', 0)
-                    }])
-                    return df
-            except Exception as e:
-                logger.warning(f"⚠️ 获取实时数据也失败: {e}")
-
-            logger.error(f"❌ 无法获取股票 {stock_code} 的数据")
-            return None
-        except Exception as e:
-            logger.error(f"❌ 加载数据失败: {e}")
-            return None
 
     def analyze(
         self,
@@ -110,72 +37,24 @@ class AnalysisPipeline:
         use_cache: bool = True
     ) -> Dict[str, Any]:
         """
-        执行完整的分析流程
+        执行完整的分析流程（保持向后兼容）
 
-        V9 架构：只做计算，不调用 Agent
-        Agent 解释由 ReportService.generate_report() 负责
-
-        Args:
-            stock_code: 股票代码
-            market: 市场（cn/hk/us）
-            use_cache: 是否使用缓存
-
-        Returns:
-            Dict: 包含计算结果的字典（不含 Agent 报告）
+        内部调用 QuantCore，返回兼容的旧格式
         """
         start_time = datetime.now()
         logger.info(f"🚀 开始分析股票: {stock_code}")
 
         try:
-            # 1. 数据加载
-            df = self.load_data(stock_code, market)
-            if df is None:
-                return {
-                    "success": False,
-                    "error": "无法加载股票数据",
-                    "stock_code": stock_code
-                }
+            # 调用 QuantCore 执行核心计算
+            quant_result = self.quant_core.analyze(stock_code, market)
 
-            # 2. 因子计算
-            logger.info("🔢 运行因子引擎...")
-            factors = self.factor_engine.calculate(df)
-            logger.info(f"✅ 因子计算完成")
-
-            # 3. 信号生成
-            logger.info("📡 运行信号引擎...")
-            signals = self.signal_engine.generate(df, factors)
-            logger.info(f"✅ 信号生成完成")
-
-            # 4. 龙头识别
-            logger.info("🐉 运行龙头引擎...")
-            leaders = self.leader_engine.analyze(df, factors, signals)
-            logger.info(f"✅ 龙头识别完成")
-
-            # 5. 市场记忆
-            logger.info("🧠 获取市场记忆...")
-            memory = self.market_memory.get_market_context(days=5)
-            logger.info(f"✅ 市场记忆获取完成")
-
-            # 6. 综合评分
-            logger.info("📈 计算综合评分...")
-            final_score = self.calculate_score(factors, signals, leaders)
-            logger.info(f"✅ 综合评分: {final_score}")
+            # 转换为旧格式（保持向后兼容）
+            old_format = self._convert_to_old_format(quant_result)
 
             elapsed = (datetime.now() - start_time).total_seconds()
             logger.info(f"🎉 分析完成，耗时: {elapsed:.2f}秒")
 
-            return {
-                "success": True,
-                "stock_code": stock_code,
-                "market": market,
-                "factors": factors,
-                "signals": signals,
-                "leaders": leaders,
-                "memory": memory,
-                "score": final_score,
-                "elapsed_time": elapsed,
-                "analysis_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
+            return old_format
 
         except Exception as e:
             logger.error(f"❌ 分析失败: {e}", exc_info=True)
@@ -186,23 +65,36 @@ class AnalysisPipeline:
                 "analysis_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
 
+    def _convert_to_old_format(self, quant_result: QuantResult) -> Dict[str, Any]:
+        """
+        将 QuantResult 转换为旧格式，保持向后兼容
+        """
+        return {
+            "success": True,
+            "stock_code": quant_result.code,
+            "market": "cn",
+            "factors": quant_result.factors.raw_data or {},
+            "signals": quant_result.signals.raw_data or {},
+            "leaders": quant_result.leaders.raw_data or {},
+            "memory": quant_result.state.raw_data or {},
+            "score": quant_result.score.final_score,
+            "elapsed_time": quant_result.elapsed_ms / 1000.0,
+            "analysis_time": quant_result.date.strftime("%Y-%m-%d %H:%M:%S"),
+            "quant_result": quant_result  # 同时保留新格式
+        }
+
+    def load_data(self, stock_code: str, market: str = "cn") -> Optional[Any]:
+        """
+        加载股票数据（保持向后兼容）
+        """
+        return self.quant_core.datahub.get_ohlcv_dataframe(stock_code, market)
+
     def calculate_score(self, factors: Dict, signals: Dict, leaders: Dict) -> float:
         """
-        计算综合评分
-
-        评分权重：
-        - 因子评分: 40%
-        - 信号评分: 30%
-        - 龙头评分: 30%
-
-        Args:
-            factors: 因子结果
-            signals: 信号结果
-            leaders: 龙头结果
-
-        Returns:
-            float: 综合评分（0-100）
+        计算综合评分（保持向后兼容，但不推荐使用）
+        新代码应使用 QuantCore 直接计算
         """
+        logger.warning("⚠️ 使用已弃用的 calculate_score 方法，建议使用 QuantCore")
         try:
             factor_score = factors.get('summary', {}).get('overall_score', 50)
             signal_summary = signals.get('summary', {})
@@ -214,9 +106,7 @@ class AnalysisPipeline:
                 signal_score * 0.3 +
                 leader_score * 0.3
             )
-
             return round(final_score, 1)
-
         except Exception as e:
             logger.error(f"❌ 计算综合评分失败: {e}")
             return 50.0
@@ -224,12 +114,6 @@ class AnalysisPipeline:
     def quick_analyze(self, stock_code: str) -> Dict[str, Any]:
         """
         快速分析（简化版）
-
-        Args:
-            stock_code: 股票代码
-
-        Returns:
-            Dict: 简化的分析结果
         """
         result = self.analyze(stock_code)
 

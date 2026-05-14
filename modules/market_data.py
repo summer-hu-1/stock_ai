@@ -616,10 +616,10 @@ def get_stock_data_fast(stock_code, market="cn", use_cache=True, target_date=Non
     # 优先使用本地 CSV 数据
     try:
         print(f"📂 尝试从本地 CSV 获取数据：{stock_code} (市场：{market})")
-        from core.csv_provider import CSVProvider
-        
-        csv_provider = CSVProvider()
-        csv_df = csv_provider.get_stock_daily(stock_code, market)
+        from core.datahub import get_datahub
+
+        datahub = get_datahub()
+        csv_df = datahub.get_ohlcv_dataframe(stock_code, market)
         
         if csv_df is not None and not csv_df.empty:
             print(f"✅ 本地 CSV 数据可用")

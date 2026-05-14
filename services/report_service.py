@@ -1,16 +1,17 @@
 """
 Report Service - 报告生成服务
 
-V9 架构：Service 层专门处理报告生成，调用 Agent 进行解释
+V10 架构：使用 AgentOS 统一处理 AI 认知层
 
 职责：
-- 接收 Pipeline 计算的结果
-- 调用 Agent 进行市场结构解释
-- 生成最终分析报告
+- 统一使用 AgentOS 进行分析
+- 保持向后兼容旧接口
+- 聚合 QuantCore + AgentOS
 
 原则：
-- Agent 不做计算，只做解释
-- ReportService 聚合 Pipeline + Agent
+- 所有计算由 QuantCore 完成
+- 所有解释由 AgentOS 完成
+- ReportService 只做粘合
 """
 
 import logging
@@ -25,45 +26,45 @@ class ReportService:
     """
     报告生成服务
 
-    专门处理 AI 报告生成，调用 Agent 进行市场结构解释
+    V10 架构：使用 AgentOS 统一处理 AI 认知层
     """
 
     def __init__(self):
-        logger.info("🔧 初始化报告服务...")
+        logger.info("🔧 初始化报告服务（AgentOS）...")
+        from core.agent_os import get_agent_os
+        self.agent_os = get_agent_os()
 
     def generate_report(
         self,
         stock_code: str,
-        factors: Dict,
-        signals: Dict,
-        leaders: Dict,
-        memory: Dict
+        factors: Dict = None,
+        signals: Dict = None,
+        leaders: Dict = None,
+        memory: Dict = None
     ) -> Dict[str, Any]:
         """
-        生成分析报告
+        生成分析报告（保持向后兼容）
 
-        Args:
-            stock_code: 股票代码
-            factors: 因子结果（从 Pipeline 获取）
-            signals: 信号结果（从 Pipeline 获取）
-            leaders: 龙头结果（从 Pipeline 获取）
-            memory: 市场记忆（从 Pipeline 获取）
-
-        Returns:
-            Dict: Agent 生成的报告结果
+        新代码建议直接使用 agent_os.analyze_stock()
         """
         logger.info(f"🤖 为股票 {stock_code} 生成报告...")
 
         try:
-            from agents.controller_agent import multi_agent_review
+            # 使用 AgentOS 统一处理
+            result = self.agent_os.analyze_stock(stock_code)
 
-            # 调用 Agent 生成报告
-            result = multi_agent_review(stock_code)
+            if not result.get("success"):
+                return result
 
             logger.info(f"✅ 报告生成成功")
             return {
                 "success": True,
-                "data": result,
+                "data": {
+                    "agent_results": {},
+                    "final_report": result.get("agent_report", ""),
+                    "summary": result.get("summary", {}),
+                    "quant_result": result.get("quant_result")
+                },
                 "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
 
@@ -77,24 +78,24 @@ class ReportService:
 
     def generate_quick_report(self, stock_code: str) -> Dict[str, Any]:
         """
-        快速生成报告（不经过 Pipeline，直接调用 Agent）
+        快速生成报告（保持向后兼容）
 
-        用于简单分析场景
-
-        Args:
-            stock_code: 股票代码
-
-        Returns:
-            Dict: 报告结果
+        新代码建议直接使用 agent_os.analyze_stock()
         """
         logger.info(f"⚡ 快速生成报告: {stock_code}")
 
         try:
-            from agents.controller_agent import multi_agent_review
-            result = multi_agent_review(stock_code)
+            result = self.agent_os.analyze_stock(stock_code)
+
+            if not result.get("success"):
+                return result
+
             return {
                 "success": True,
-                "data": result
+                "data": {
+                    "final_report": result.get("agent_report", ""),
+                    "summary": result.get("summary", {})
+                }
             }
         except Exception as e:
             logger.error(f"❌ 快速报告生成失败: {e}")

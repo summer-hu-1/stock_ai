@@ -108,10 +108,10 @@ if __name__ == "__main__":
     import sys
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-    from core.csv_provider import CSVProvider
+    from core.datahub import get_datahub
 
-    provider = CSVProvider()
-    df = provider.get_stock_daily("000002")
+    datahub = get_datahub()
+    df = datahub.get_ohlcv_dataframe("000002", "cn")
 
     if df is not None:
         engine = FactorEngine()
