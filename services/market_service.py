@@ -97,6 +97,66 @@ class MarketService:
             "created_at": row[7]
         } for row in rows]
 
+    def get_market_context(self, days: int = 5) -> Dict:
+        """获取市场综合上下文信息（用于UI展示）"""
+        snapshots = self.get_recent_snapshots(limit=days)
+
+        if not snapshots:
+            return {
+                "risk_change": {
+                    "trend": "未知",
+                    "description": "暂无足够数据"
+                },
+                "market_state": "未知",
+                "emotion_state": "未知",
+                "description": "暂无市场数据"
+            }
+
+        latest = snapshots[0]
+        avg_score = sum(s["sentiment_score"] for s in snapshots) / len(snapshots)
+
+        scores = [s["sentiment_score"] for s in snapshots]
+        if len(scores) >= 2:
+            score_change = scores[0] - scores[-1]
+        else:
+            score_change = 0
+
+        if avg_score >= 0.6:
+            market_state = "上升"
+            emotion_state = "乐观"
+            base_description = "市场情绪乐观，多头占优"
+        elif avg_score >= 0.4:
+            market_state = "震荡"
+            emotion_state = "中性"
+            base_description = "市场情绪中性，方向不明"
+        else:
+            market_state = "下降"
+            emotion_state = "悲观"
+            base_description = "市场情绪悲观，空头占优"
+
+        if score_change > 0.1:
+            risk_trend = "上升"
+            risk_description = f"风险偏好上升，情绪评分较前期提升 {score_change:.1%}"
+        elif score_change < -0.1:
+            risk_trend = "下降"
+            risk_description = f"风险偏好下降，情绪评分较前期下降 {abs(score_change):.1%}"
+        else:
+            risk_trend = "稳定"
+            risk_description = f"风险偏好稳定，情绪评分变化不大"
+
+        return {
+            "risk_change": {
+                "trend": risk_trend,
+                "description": risk_description
+            },
+            "market_state": market_state,
+            "emotion_state": emotion_state,
+            "description": base_description,
+            "avg_score": round(avg_score, 2),
+            "score_change": round(score_change, 2),
+            "snapshot_count": len(snapshots)
+        }
+
     def get_market_cycle(self, days: int = 5) -> Dict:
         """获取市场周期信息"""
         snapshots = self.get_recent_snapshots(limit=days)
