@@ -12,6 +12,7 @@ from .models import (
     EMOTION_TRENDS
 )
 from .cache import DataHubCache, get_cache
+from .unifier import UnifiedDataProvider, get_unified_provider
 
 __all__ = [
     "DataHub",
@@ -28,4 +29,6 @@ __all__ = [
     "EMOTION_TRENDS",
     "DataHubCache",
     "get_cache",
+    "UnifiedDataProvider",
+    "get_unified_provider",
 ]

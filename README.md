@@ -1,13 +1,14 @@
-# AI Quant OS - AI原生量化平台 V10.1（简洁架构版）
+# AI Quant OS - AI原生量化平台 V10.2（数据中台版）
 
-> 基于 DeepSeek + AkShare/yfinance + 5层简洁架构的智能交易分析系统
+> 基于 DeepSeek + AkShare/yfinance + 5层简洁架构 + 数据中台的智能交易分析系统
 
-**V10.1 核心原则**：
+**V10.2 核心原则**：
 1. **5层简洁架构** - 数据/量化/策略/服务/界面
 2. **数据唯一入口** - DataHub 是系统唯一数据源
 3. **计算唯一入口** - QuantCore 是系统唯一计算引擎
 4. **认知与计算分离** - 服务层做解释，量化层做计算
 5. **策略统一调度** - StrategyOS 统一管理仓位、风控、执行
+6. **数据中台** - DataLake + FeatureStore + 离线计算引擎
 
 ---
 
@@ -40,7 +41,7 @@
 - **6大中台架构**：DataHub / QuantCore / AgentOS / StrategyOS / ExecutionOS / App
 - **分层清晰**：核心/数据/量化/Agent/服务/界面/执行/策略 八层分离
 
-### V10.1 简洁架构（当前版本）✅
+### V10.1 简洁架构
 > **核心升级**：从「8层复杂架构」简化为「5层简洁架构」，职责更清晰
 >
 > **5层架构**：
@@ -50,9 +51,16 @@
 > - **服务层** - 业务聚合 + AI解释
 > - **界面层** - 用户交互 + 数据展示
 
+### V10.2 数据中台（当前版本）✅
+> **核心升级**：在 V10.1 基础上，建立真正的数据中台：
+> - **DataLake** - Parquet格式，海量K线高效存储
+> - **FeatureStore** - SQLite特征库，量化结果固化
+> - **SnapshotEngine** - 离线计算引擎，每晚定时执行
+> - **Scheduler** - 定时调度器
+
 ---
 
-## 🏗️ V10.1 简洁架构
+## 🏗️ V10.2 数据中台架构
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -85,14 +93,15 @@
 │  • 信号生成                                                     │
 │  • 市场状态                                                     │
 │  • 综合评分                                                     │
+│  • SnapshotEngine（离线计算）                                 │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    数据层 (Data)                                │
-│  • 数据获取                                                     │
-│  • 数据缓存                                                     │
-│  • 基础设施（配置/常量/异常/工具）                              │
+│                    数据中台 (Data)                              │
+│  • DataLake - Parquet K线存储                                  │
+│  • FeatureStore - SQLite特征存储                               │
+│  • 配置/常量/工具                                               │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -100,6 +109,7 @@
 
 ## 📊 核心数据流
 
+### 传统流程（V10.1）
 ```
 1. 数据获取 (数据层)
    DataHub.get_ohlcv_dataframe(code, market) → pd.DataFrame
@@ -133,9 +143,22 @@
    UI.display_analysis_result(result)
 ```
 
+### 优化流程（V10.2）
+```
+每晚离线执行 (Schedule):
+├─ 18:00 更新行情 → DataLake (Parquet)
+├─ 18:30 计算因子 → factor_snapshot
+├─ 19:00 生成信号 → signal_snapshot
+├─ 20:00 市场状态 → market_state
+└─ 20:30 完整快照 → 所有FeatureStore表
+
+用户实时查询:
+└─ 直接读取 FeatureStore 快照 → 无需重新计算
+```
+
 ---
 
-## 📁 完整代码结构 (V10.1)
+## 📁 完整代码结构 (V10.2)
 
 ```
 stock_ai/
@@ -155,9 +178,22 @@ stock_ai/
 │       ├── csv_adapter.py
 │       └── ashare_adapter.py
 │
+├── data_lake/                  # 数据湖（新增核心）
+│   ├── __init__.py             # DataLake 核心类
+│   ├── cn/daily/               # A股日线
+│   ├── cn/minute/              # A股分钟线
+│   ├── hk/                     # 港股
+│   └── us/                     # 美股
+│
+├── database/                   # 数据库
+│   ├── __init__.py
+│   ├── db.py                   # 旧版认证数据库
+│   └── market_db.py            # 新版统一数据库（新增核心）
+│
 ├── quant/                      # 量化层（第2层）
 │   ├── __init__.py
 │   ├── engine.py               # QuantCore - 主引擎
+│   ├── snapshot_engine.py      # 快照引擎（新增核心）
 │   ├── factor/                 # 因子计算
 │   │   └── engine.py
 │   ├── signal/                 # 信号生成
@@ -191,17 +227,102 @@ stock_ai/
 │       ├── interpreter.py      # 解释器
 │       └── models.py
 │
+├── scheduler/                  # 调度器（新增）
+│   ├── __init__.py
+│   └── quant_scheduler.py      # 定时任务调度
+│
 ├── ui/                         # 界面层（第5层）
 │   ├── __init__.py
 │   ├── components.py           # UI组件
 │   └── pages/                  # 页面
 │
 ├── auth/                       # 认证模块
-├── database/                   # 数据库
 ├── modules/                    # 业务模块
-├── scheduler/                  # 调度器
 ├── signal_center/              # 信号中心
 └── templates/                  # 前端模板
+```
+
+---
+
+## 🗄️ 数据中台详解
+
+### 1. DataLake（数据湖）- Parquet存储
+
+```
+data_lake/
+├── cn/
+│   ├── daily/              # 日线数据
+│   │   ├── 000001.parquet
+│   │   └── ...
+│   └── minute/             # 分钟数据
+├── hk/
+└── us/
+```
+
+**优势**：
+| 特性 | 说明 |
+|------|------|
+| 超轻量 | 比CSV小50%+ |
+| 超快查询 | 列式存储，支持谓词下推 |
+| pandas原生 | pyarrow直接读取 |
+| AI友好 | 机器学习天然支持 |
+
+### 2. FeatureStore（特征存储）- SQLite
+
+| 表名 | 层级 | 用途 |
+|------|------|------|
+| `daily_bars` | 事实层 | 原始每日K线 |
+| `factor_snapshot` | 计算层 | 因子得分（趋势/动量/量能/波动率） |
+| `signal_snapshot` | 计算层 | 信号（突破/反转/主升/放量） |
+| `market_state` | 计算层 | 市场周期/情绪/热点/风险 |
+| `sector_strength` | 计算层 | 板块强度 |
+| `leader_snapshot` | 计算层 | 龙头股识别 |
+| `stock_score` | 计算层 | 综合评分/交易信号 |
+| `positions` | 行为层 | 持仓记录 |
+| `orders` | 行为层 | 订单记录 |
+| `trades` | 行为层 | 交易记录 |
+| `watchlist` | 行为层 | 自选股 |
+
+### 3. 核心表结构
+
+#### daily_bars（事实层）
+```sql
+CREATE TABLE daily_bars (
+    code TEXT,
+    market TEXT,
+    date TEXT,
+    open REAL, high REAL, low REAL, close REAL,
+    volume REAL, amount REAL,
+    PRIMARY KEY(code, date)
+)
+```
+
+#### factor_snapshot（计算层）
+```sql
+CREATE TABLE factor_snapshot (
+    code TEXT,
+    date TEXT,
+    trend_score REAL,
+    momentum_score REAL,
+    volume_score REAL,
+    volatility_score REAL,
+    strength_score REAL,
+    total_score REAL,
+    PRIMARY KEY(code, date)
+)
+```
+
+#### market_state（AI大脑）
+```sql
+CREATE TABLE market_state (
+    date TEXT PRIMARY KEY,
+    market_cycle TEXT,
+    sentiment_score REAL,
+    risk_level TEXT,
+    hot_sector TEXT,
+    limit_up_count INTEGER,
+    limit_down_count INTEGER
+)
 ```
 
 ---
@@ -225,7 +346,17 @@ cd stock_ai
 streamlit run app.py
 ```
 
-### 4. 功能标签页说明
+### 4. 启动调度器（离线计算）
+```bash
+python -m scheduler.quant_scheduler --start
+```
+
+### 5. 手动运行一次快照（测试）
+```bash
+python -m scheduler.quant_scheduler --run-once
+```
+
+### 6. 功能标签页说明
 
 系统提供 **9个功能标签页**，充分展示5层架构能力：
 
@@ -241,31 +372,38 @@ streamlit run app.py
 | 8 | 📈 历史记录 | 历史分析记录 | UI |
 | 9 | 📅 情绪周期 | 市场情绪趋势 | Services |
 
-### 5. 核心使用示例
+### 7. 核心使用示例
 
 ```python
 from data import get_datahub
 from quant import get_quant_core
 from strategy import get_strategy_os
 from services import get_analysis_service, get_agent_os
+from data_lake import get_data_lake
+from quant.snapshot_engine import get_snapshot_engine
 
-# 1. 数据获取
-datahub = get_datahub()
-df = datahub.get_ohlcv_dataframe("000002", "cn")
+# 1. DataLake 数据获取 (V10.2 新增)
+data_lake = get_data_lake()
+df = data_lake.load_daily_data("000002", "cn")
 
-# 2. 量化分析
+# 2. 读取量化快照 (V10.2 新增，无需实时计算)
+snapshot = get_snapshot_engine()
+factor_data = snapshot.get_latest_factor_snapshot("000002")
+market_state = snapshot.get_latest_market_state()
+
+# 3. QuantCore 量化分析 (兼容V10.1)
 quant = get_quant_core()
 result = quant.analyze("000002", "cn")
 
-# 3. 策略决策
+# 4. 策略决策
 strategy = get_strategy_os()
 decision = strategy.generate_trade_decision(result)
 
-# 4. AI解释
+# 5. AI解释
 agent = get_agent_os()
 report = agent.analyze_stock("000002", "cn")
 
-# 5. 模拟执行
+# 6. 模拟执行
 if decision.action == "买入":
     strategy.execute_buy(
         code="000002",
@@ -273,11 +411,24 @@ if decision.action == "买入":
         price=25.5
     )
 
-# 6. 查看账户
+# 7. 查看账户
 account = strategy.get_account()
 print(f"总资产: {account.total_assets:.2f}")
 print(f"收益: {account.profit_loss_pct:+.2f}%")
 ```
+
+---
+
+## ⏰ 离线计算调度
+
+| 时间 | 任务 | 输出 |
+|------|------|------|
+| 18:00 | `update_market_data()` | DataLake |
+| 18:30 | `calculate_factors()` | factor_snapshot |
+| 19:00 | `generate_signals()` | signal_snapshot |
+| 20:00 | `generate_market_state()` | market_state |
+| 20:30 | `generate_complete_snapshot()` | 所有表 |
+| 00:00 | `reset_daily_quota()` | 用户配额重置 |
 
 ---
 
@@ -338,6 +489,23 @@ StrategyOS 负责策略调度和模拟交易执行：
 | `get_datahub().get_market_state()` | 获取市场状态 |
 | `get_datahub().get_sector_data()` | 获取板块数据 |
 
+### DataLake (V10.2 新增)
+
+| 方法 | 说明 |
+|------|------|
+| `get_data_lake().save_daily_data(code, market, df)` | 保存日线到Parquet |
+| `get_data_lake().load_daily_data(code, market, start, end)` | 从Parquet加载日线 |
+| `get_data_lake().list_stocks(market, freq)` | 列出市场股票 |
+
+### SnapshotEngine (V10.2 新增)
+
+| 方法 | 说明 |
+|------|------|
+| `get_snapshot_engine().generate_daily_snapshot(date)` | 生成每日量化快照 |
+| `get_snapshot_engine().get_latest_factor_snapshot(code)` | 读取最新因子快照 |
+| `get_snapshot_engine().get_latest_market_state()` | 读取最新市场状态 |
+| `get_snapshot_engine().get_top_stocks_by_score(date, limit)` | 获取高分股票列表 |
+
 ### 量化层 (Quant)
 
 | 方法 | 说明 |
@@ -377,6 +545,7 @@ StrategyOS 负责策略调度和模拟交易执行：
 # 支持的数据源
 - AShare: AkShare API
 - CSV: 本地CSV文件
+- Parquet: DataLake (V10.2 新增)
 - Memory: 内存缓存
 ```
 
@@ -390,7 +559,7 @@ StrategyOS 负责策略调度和模拟交易执行：
 
 ---
 
-## 🎯 V10.1 架构优势
+## 🎯 V10.2 架构优势
 
 | 优势 | 说明 |
 |------|------|
@@ -399,15 +568,22 @@ StrategyOS 负责策略调度和模拟交易执行：
 | **可维护** | 修改一层不影响其他层 |
 | **可测试** | 每层可独立单元测试 |
 | **可扩展** | 新增功能只需扩展对应层 |
+| **职责清晰** | 数据/计算/行为三层分离 |
+| **可重算** | 因子可重新计算，历史结果不污染 |
+| **高性能** | Parquet + SQLite 轻量化方案 |
+| **无重复计算** | 用户访问直接读快照 |
 
 ---
 
 ## 🔮 未来规划
 
-- [ ] 实盘对接（券商接口）
+- [x] 数据中台搭建（DataLake + FeatureStore）
+- [x] 离线计算引擎（SnapshotEngine）
+- [x] 定时调度器
 - [ ] 回测系统
 - [ ] 多策略组合
 - [ ] 实时行情
+- [ ] 实盘对接（券商接口）
 - [ ] 分布式架构
 
 ---
@@ -415,9 +591,10 @@ StrategyOS 负责策略调度和模拟交易执行：
 ## 📚 相关文档
 
 - [架构文档](ARCHITECTURE.md) - V10.1 架构详细说明
+- [数据中台说明](DATA_LAKE.md) - DataLake + FeatureStore 架构说明
 - [使用指南](GUIDE.md) - 使用指南和最佳实践
 - [市场记忆](MARKET_MEMORY_SUMMARY.md) - 市场记忆系统说明
 
 ---
 
-**AI Quant OS V10.1 - 简洁架构，清晰职责** 🚀
+**AI Quant OS V10.2 - 数据中台架构，量化核心** 🚀
