@@ -185,12 +185,22 @@ with col_api_check:
 
 with col_quota:
     quota_info = get_user_quota_info()
-    if quota_info['unlimited']:
+    if quota_info.get('unlimited', False):
         st.info("🎉 无限分析次数")
     else:
-        st.caption(f"今日配额: {quota_info['used']}/{quota_info['limit']}")
+        st.caption(f"今日配额: {quota_info.get('used', 0)}/{quota_info.get('limit', 100)}")
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠 多Agent分析（完整）", "📊 各Agent详情", "📈 历史记录", "📅 情绪周期", "📈 日线数据"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+    "⚡ 单Prompt分析（快速）", 
+    "🧠 多Agent分析（完整）", 
+    "📊 量化分析（QuantCore）",
+    "🤖 AI分析（AgentOS）",
+    "⚙️ 策略执行（StrategyOS）",
+    "📡 信号扫描中心",
+    "📊 各Agent详情", 
+    "📈 历史记录", 
+    "📅 情绪周期"
+])
 
 with tab1:
     st.header("⚡ 单Prompt分析（快速）")
@@ -476,6 +486,219 @@ with tab1:
                     st.rerun()
 
     with tab3:
+        st.header("📊 QuantCore 量化分析")
+        st.info("💡 QuantCore是系统的核心计算引擎，负责所有数学计算：因子计算、信号生成、市场状态分析、综合评分")
+        
+        from ui.components import stock_selector_with_market
+        stock, stock_name, market = stock_selector_with_market(
+            key_prefix="quant",
+            default_market="cn",
+            show_refresh=True
+        )
+        
+        if st.button("🚀 运行量化分析", key="quant_analyze", type="primary"):
+            if not stock:
+                st.error("请输入股票代码")
+            else:
+                from quant import get_quant_core
+                
+                with st.spinner("🔄 正在运行量化分析..."):
+                    quant_core = get_quant_core()
+                    result = quant_core.analyze(stock, market)
+                
+                if not result:
+                    st.error(f"无法获取股票 {stock} 的量化数据")
+                else:
+                    # 综合评分
+                    st.subheader("🏆 综合评分")
+                    score = result.score
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("最终评分", f"{score.final_score:.1f}/100")
+                    with col2:
+                        st.metric("交易信号", score.signal)
+                    with col3:
+                        st.metric("置信度", f"{score.confidence:.1%}")
+                    with col4:
+                        st.metric("风险等级", score.risk_level)
+                    
+                    # 因子得分
+                    st.subheader("📈 因子得分详情")
+                    factors = {
+                        "趋势得分": score.trend_score,
+                        "动量得分": score.momentum_score,
+                        "量能得分": score.volume_score,
+                        "波动率得分": score.volatility_score,
+                        "强度得分": score.strength_score,
+                        "龙头加分": score.leader_bonus,
+                        "市场调整": score.market_state_adj
+                    }
+                    df_factors = pd.DataFrame(list(factors.items()), columns=["因子", "得分"])
+                    import plotly.express as px
+                    fig = px.bar(df_factors, x="因子", y="得分", color="得分", 
+                                color_continuous_scale="RdYlGn", range_y=[0, 100])
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # 市场状态
+                    st.subheader("🌡️ 市场状态")
+                    state = result.state
+                    if state:
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("市场周期", state.cycle)
+                        with col2:
+                            st.metric("周期阶段", state.cycle_stage)
+                        with col3:
+                            st.metric("情绪得分", f"{state.emotion_score:.1f}/100")
+                        with col4:
+                            st.metric("风险等级", state.risk_level)
+        
+    with tab4:
+        st.header("🤖 AgentOS AI分析")
+        st.info("💡 AgentOS是AI认知层，负责理解和解释QuantCore的量化结果，生成专业分析报告")
+        
+        from ui.components import stock_selector_with_market
+        stock, stock_name, market = stock_selector_with_market(
+            key_prefix="agent",
+            default_market="cn",
+            show_refresh=True
+        )
+        
+        if st.button("🧠 启动AI分析", key="agent_analyze", type="primary"):
+            if not stock:
+                st.error("请输入股票代码")
+            else:
+                from services.agent.agent_os import get_agent_os
+                
+                with st.spinner("🧠 AI正在分析中..."):
+                    agent_os = get_agent_os()
+                    result = agent_os.analyze_stock(stock, market)
+                
+                if not result.get("success"):
+                    st.error(f"AI分析失败: {result.get('error', '未知错误')}")
+                else:
+                    st.subheader("📝 AI分析报告")
+                    st.markdown(result["agent_report"])
+                    
+                    st.subheader("🎯 快速摘要")
+                    summary = result["summary"]
+                    col1, col2, col3, col4 = st.columns(4)
+                    items = list(summary.items())[:4]
+                    for i, (key, value) in enumerate(items):
+                        with [col1, col2, col3, col4][i]:
+                            st.metric(key, value)
+    
+    with tab5:
+        st.header("⚙️ StrategyOS 策略执行")
+        st.info("💡 StrategyOS负责策略调度、风险控制和模拟交易执行")
+        
+        from strategy import get_strategy_os
+        execution_os = get_strategy_os(initial_capital=100000.0)
+        
+        # 账户概览
+        st.subheader("💰 账户概览")
+        account = execution_os.get_account()
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("初始资金", f"¥{account.initial_capital:,.2f}")
+        with col2:
+            st.metric("当前总资产", f"¥{account.total_assets:,.2f}")
+        with col3:
+            st.metric("持仓市值", f"¥{account.market_value:,.2f}")
+        with col4:
+            st.metric("可用现金", f"¥{account.cash:,.2f}")
+        
+        # 当前持仓
+        st.subheader("📦 当前持仓")
+        positions = execution_os.get_positions()
+        if positions:
+            pos_data = []
+            for p in positions:
+                pos_data.append({
+                    "股票代码": p.code,
+                    "股票名称": p.name,
+                    "持仓数量": p.shares,
+                    "成本价": f"¥{p.avg_cost:.2f}",
+                    "现价": f"¥{p.current_price:.2f}",
+                    "盈亏": f"{p.profit_loss_pct:.2f}%",
+                    "市值": f"¥{p.market_value:.2f}"
+                })
+            st.dataframe(pd.DataFrame(pos_data))
+        else:
+            st.info("📭 暂无持仓")
+        
+        # 模拟下单
+        st.subheader("📝 模拟下单")
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            order_code = st.text_input("股票代码", "000002")
+        with col2:
+            order_side = st.selectbox("方向", ["buy", "sell"])
+        with col3:
+            order_price = st.number_input("价格", value=10.0)
+        with col4:
+            order_quantity = st.number_input("数量", value=100, step=100)
+        with col5:
+            if st.button("提交订单", type="primary"):
+                if order_side == "buy":
+                    result = execution_os.execute_buy(
+                        code=order_code,
+                        quantity=order_quantity,
+                        price=order_price
+                    )
+                else:
+                    result = execution_os.execute_sell(
+                        code=order_code,
+                        quantity=order_quantity,
+                        price=order_price
+                    )
+                if result["success"]:
+                    st.success(f"✅ 订单已提交: {result['order_id']}")
+                    st.rerun()
+                else:
+                    st.error(f"❌ 下单失败: {result['message']}")
+    
+    with tab6:
+        st.header("📡 信号扫描中心")
+        st.info("💡 全市场信号扫描与分析")
+        
+        from services.signal_service import get_signal_service
+        signal_service = get_signal_service()
+        
+        # 市场概览
+        summary = signal_service.get_signal_summary()
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("📡 今日信号", summary["total_signals"])
+        with col2:
+            st.metric("📈 看多", summary["up_signals"])
+        with col3:
+            st.metric("📉 看空", summary["down_signals"])
+        with col4:
+            st.metric("⚡ 平均强度", summary["avg_strength"])
+        
+        # 今日信号
+        df = signal_service.get_today_signals()
+        if not df.empty:
+            st.subheader("📋 今日信号列表")
+            st.dataframe(df[["code", "name", "signal_type", "direction", "strength", "date"]])
+            
+            # 高强度信号
+            top_df = signal_service.get_top_signals(limit=10, min_strength=0.7)
+            if not top_df.empty:
+                st.subheader("🔥 强势信号股票")
+                st.dataframe(top_df[["code", "name", "signal_type", "direction", "strength"]])
+        else:
+            st.info("📭 暂无今日数据")
+        
+        if st.button("🔄 执行全市场扫描", type="primary"):
+            from scheduler.daily_scan import run_daily_scan
+            with st.spinner("🔄 正在扫描全市场..."):
+                run_daily_scan()
+            st.success("✅ 扫描完成！")
+            st.rerun()
+
+    with tab7:
         st.header("📊 各Agent分析详情")
 
         st.info("💡 请先在「多Agent分析」tab中进行一次分析，然后查看各Agent详情会自动更新")
@@ -503,7 +726,7 @@ with tab1:
             st.subheader("⚠️ 风险Agent")
             st.text(st.session_state.agent_results["format"]["risk"])
 
-    with tab4:
+    with tab8:
         st.header("📈 历史记录")
 
         if 'refresh_history' not in st.session_state:
@@ -565,7 +788,7 @@ with tab1:
         else:
             st.info("暂无历史记录，先在「单Prompt分析」或「多Agent分析」tab中分析股票吧！")
 
-    with tab5:
+    with tab9:
         st.header("📅 市场情绪周期")
         from services import get_market_service
         market_service = get_market_service()
