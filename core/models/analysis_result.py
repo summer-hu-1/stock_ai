@@ -5,7 +5,7 @@
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 from datetime import datetime
 from core.models.factor_result import FactorResult
 from core.models.signal_result import SignalResult

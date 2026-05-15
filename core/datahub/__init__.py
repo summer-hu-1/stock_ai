@@ -1,31 +1,10 @@
-from .hub import DataHub, get_datahub
-from .models import (
-    OHLCV,
-    MarketState,
-    Sector,
-    StockInfo,
-    FundFlow,
-    News,
-    IndexData,
-    MARKET_CYCLE_STAGES,
-    RISK_LEVELS,
-    EMOTION_TRENDS
-)
-from .cache import DataHubCache, get_cache
+"""
+Core Datahub - 向后兼容模块
 
-__all__ = [
-    "DataHub",
-    "get_datahub",
-    "OHLCV",
-    "MarketState",
-    "Sector",
-    "StockInfo",
-    "FundFlow",
-    "News",
-    "IndexData",
-    "MARKET_CYCLE_STAGES",
-    "RISK_LEVELS",
-    "EMOTION_TRENDS",
-    "DataHubCache",
-    "get_cache",
-]
+V10.1 已将 DataHub 移至 data.hub
+此模块保留用于向后兼容
+"""
+
+from data.hub import DataHub, get_datahub
+
+__all__ = ["DataHub", "get_datahub"]

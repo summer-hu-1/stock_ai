@@ -616,7 +616,7 @@ def get_stock_data_fast(stock_code, market="cn", use_cache=True, target_date=Non
     # 优先使用本地 CSV 数据
     try:
         print(f"📂 尝试从本地 CSV 获取数据：{stock_code} (市场：{market})")
-        from core.datahub import get_datahub
+        from data import get_datahub
 
         datahub = get_datahub()
         csv_df = datahub.get_ohlcv_dataframe(stock_code, market)

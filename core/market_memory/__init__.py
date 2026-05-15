@@ -1,25 +1,10 @@
-from .models import MarketSnapshot, MarketTrend, MarketInsight
-from .engine import MarketStateEngine
-from .snapshot_generator import MarketSnapshotGenerator
-from .api import MarketMemory
-from .insight_engine import (
-    NarrativeEngine,
-    MarketContextBuilder,
-    LLMPromptBuilder,
-    MarketInsightEngine
-)
-from .historical_fetcher import HistoricalSnapshotFetcher
+"""
+Core MarketMemory - 向后兼容模块
 
-__all__ = [
-    'MarketSnapshot', 
-    'MarketTrend', 
-    'MarketInsight',
-    'MarketStateEngine',
-    'MarketSnapshotGenerator',
-    'MarketMemory',
-    'NarrativeEngine',
-    'MarketContextBuilder',
-    'LLMPromptBuilder',
-    'MarketInsightEngine',
-    'HistoricalSnapshotFetcher'
-]
+V10.1 市场记忆功能已重构
+此模块保留用于向后兼容
+"""
+
+from core.models import MarketMemory, AgentAnalysis, AnalysisResult
+
+__all__ = ["MarketMemory", "AgentAnalysis", "AnalysisResult"]

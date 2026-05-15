@@ -222,7 +222,7 @@ def register_default_apis():
         logger.info(f"📂 尝试通过DataHub读取CSV文件: {pure_code}")
 
         try:
-            from core.datahub import get_datahub
+            from data import get_datahub
             datahub = get_datahub()
             df = datahub.get_ohlcv_dataframe(pure_code, "cn")
 
@@ -264,7 +264,7 @@ def register_default_apis():
         pure_code = code.replace(".SH", "").replace(".SZ", "").strip()
 
         try:
-            from core.datahub import get_datahub
+            from data import get_datahub
             datahub = get_datahub()
             df = datahub.get_ohlcv_dataframe(pure_code, "cn")
 

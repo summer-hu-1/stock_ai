@@ -870,7 +870,7 @@ with tab1:
             return sorted(files, key=lambda x: x['code'])
 
         def get_stock_data(file_path):
-            from core.datahub import get_datahub
+            from data import get_datahub
             datahub = get_datahub()
             parts = file_path.split('/')
             if len(parts) >= 2:
