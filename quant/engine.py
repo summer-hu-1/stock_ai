@@ -7,6 +7,7 @@ V10 架构核心：统一量化计算引擎
 from typing import Optional, Dict, Any
 import pandas as pd
 import logging
+from .models import QuantResult
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class QuantCore:
         self._state_engine = None
         self._score_engine = None
 
-    def analyze(self, code: str, market: str = "cn") -> Optional[Dict[str, Any]]:
+    def analyze(self, code: str, market: str = "cn") -> Optional[QuantResult]:
         """
         综合量化分析
 
@@ -33,7 +34,7 @@ class QuantCore:
             market: 市场代码
 
         Returns:
-            Dict: 量化分析结果
+            QuantResult: 量化分析结果对象
         """
         from data import get_datahub
 
@@ -44,16 +45,19 @@ class QuantCore:
             logger.warning(f"无法获取数据: {code}")
             return None
 
-        result = {
-            "code": code,
-            "market": market,
-            "factors": self.calculate_factors(df),
-            "signals": self.generate_signals(df),
-            "state": self.analyze_market_state(df),
-            "score": self.calculate_score(df),
-        }
+        factors = self.calculate_factors(df)
+        signals = self.generate_signals(df)
+        state = self.analyze_market_state(df)
+        score = self.calculate_score(df)
 
-        return result
+        return QuantResult(
+            code=code,
+            market=market,
+            factors=factors,
+            signals=signals,
+            state=state,
+            score=score
+        )
 
     def calculate_factors(self, df: pd.DataFrame) -> Dict[str, float]:
         """

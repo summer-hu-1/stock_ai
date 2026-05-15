@@ -12,6 +12,7 @@
 from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
+from ..models import StateResult
 
 
 class StateEngine:
@@ -26,7 +27,7 @@ class StateEngine:
     def __init__(self):
         self.leader_detector = LeaderFeatureDetector()
 
-    def analyze(self, df: pd.DataFrame, factors: Dict[str, Any] = None, signals: Dict[str, Any] = None) -> Dict[str, Any]:
+    def analyze(self, df: pd.DataFrame, factors: Dict[str, Any] = None, signals: Dict[str, Any] = None) -> StateResult:
         """
         分析市场状态
 
@@ -36,7 +37,7 @@ class StateEngine:
             signals: 信号数据（可选）
 
         Returns:
-            Dict: 市场状态和龙头分析结果
+            StateResult: 市场状态结果对象
         """
         if df is None or df.empty or len(df) < 20:
             return self._default_state()
@@ -44,16 +45,44 @@ class StateEngine:
         state = self._identify_state(df)
         description = self._get_state_description(state)
         sentiment = self._calculate_sentiment(df)
+        volatility = self._calculate_volatility(df)
         
         leader_result = self.leader_detector.detect(df, factors, signals)
 
-        return {
-            "state": state,
-            "description": description,
-            "sentiment": sentiment,
-            "volatility": self._calculate_volatility(df),
-            **leader_result,
+        cycle_map = {
+            "iceberg": "下降",
+            "recovery": "震荡",
+            "rally": "上升",
+            "high": "上升",
+            "retreat": "下降"
         }
+        
+        cycle_stage_map = {
+            "iceberg": "冰点",
+            "recovery": "修复",
+            "rally": "主升",
+            "high": "高潮",
+            "retreat": "退潮"
+        }
+        
+        risk_map = {
+            "iceberg": "高",
+            "recovery": "中",
+            "rally": "低",
+            "high": "中",
+            "retreat": "高"
+        }
+        
+        return StateResult(
+            cycle=cycle_map.get(state, "震荡"),
+            cycle_stage=cycle_stage_map.get(state, "中性"),
+            emotion_score=round(sentiment * 100, 1),
+            risk_level=risk_map.get(state, "中等"),
+            state=state,
+            description=description,
+            sentiment=round(sentiment, 2),
+            volatility=round(volatility, 2)
+        )
 
     def rank_stocks(
         self,
@@ -104,19 +133,18 @@ class StateEngine:
             "sector_analysis": sector_analysis,
         }
 
-    def _default_state(self) -> Dict[str, Any]:
+    def _default_state(self) -> StateResult:
         """默认状态"""
-        return {
-            "state": "unknown",
-            "description": "数据不足",
-            "sentiment": 0.5,
-            "volatility": 0,
-            "is_leader": False,
-            "leader_score": 0,
-            "leader_type": "普通",
-            "leader_reasons": [],
-            "limit_up_info": {},
-        }
+        return StateResult(
+            cycle="震荡",
+            cycle_stage="中性",
+            emotion_score=50.0,
+            risk_level="中等",
+            state="unknown",
+            description="数据不足",
+            sentiment=0.5,
+            volatility=0.0
+        )
 
     def _empty_rank_result(self) -> Dict[str, Any]:
         return {

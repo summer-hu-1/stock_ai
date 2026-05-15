@@ -25,7 +25,7 @@ class CSVAdapter:
     def __init__(self, data_dir: str = None):
         if data_dir is None:
             script_dir = os.path.dirname(os.path.abspath(__file__))
-            project_dir = os.path.dirname(os.path.dirname(os.path.dirname(script_dir)))
+            project_dir = os.path.dirname(os.path.dirname(script_dir))
             self.base_data_dir = os.path.join(project_dir, "data")
         else:
             self.base_data_dir = data_dir
