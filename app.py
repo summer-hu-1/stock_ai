@@ -83,6 +83,20 @@ query_params = st.query_params
 session_data = query_params.get("s")
 logged_in = is_logged_in()
 
+# 如果没有登录但有 session_data，尝试恢复会话
+if not logged_in and session_data:
+    try:
+        user_dict = json.loads(base64.b64decode(session_data))  # 修复：直接解码 bytes
+        print(f"会话恢复: user_dict={user_dict}")
+        if user_dict and isinstance(user_dict, dict) and 'username' in user_dict:
+            set_session_user(user_dict)
+            logged_in = True
+            st.sidebar.success(f"✅ 会话已恢复: {user_dict.get('username')}")
+        else:
+            print(f"会话恢复失败: user_dict无效 - {user_dict}")
+    except Exception as e:
+        print(f"恢复会话失败: {type(e).__name__}: {e}")
+
 # 简化登录逻辑 - 暂时允许未登录访问（用于测试）
 # if not logged_in:
 #     show_login_page()
@@ -127,6 +141,13 @@ def get_company_list():
 
 st.set_page_config(page_title="AI股票复盘系统 V6", page_icon="🧠", layout="wide")
 st.title("🧠 AI股票复盘系统（多Agent架构版）")
+
+# 检查是否需要显示登录页面
+if st.session_state.get("show_login", False):
+    st.session_state["show_login"] = False
+    from auth.pages import show_login_page
+    show_login_page()
+    st.stop()
 
 # 显示用户信息侧边栏
 from auth.pages import show_user_info
@@ -886,21 +907,14 @@ with tabs[7]:
                 import pandas as pd
 
                 dates = [s['date'] for s in reversed(recent_snapshots)]
-                emotion_scores = [s['emotion_score'] for s in reversed(recent_snapshots)]
-                limit_ups = [s['limit_up_count'] for s in reversed(recent_snapshots)]
+                sentiment_scores = [s.get('sentiment_score', 0) for s in reversed(recent_snapshots)]
 
                 chart_df = pd.DataFrame({
                     "日期": dates,
-                    "情绪得分": emotion_scores,
-                    "涨停家数": limit_ups
+                    "情绪得分": sentiment_scores
                 })
 
-                col_chart1, col_chart2 = st.columns(2)
-                with col_chart1:
-                    st.line_chart(chart_df.set_index("日期")[["情绪得分"]])
-
-                with col_chart2:
-                    st.line_chart(chart_df.set_index("日期")[["涨停家数"]])
+                st.line_chart(chart_df.set_index("日期")[["情绪得分"]])
             else:
                 st.info("📊 历史数据不足，需要至少2天的市场快照才能生成趋势图表")
 
@@ -1062,13 +1076,12 @@ with tabs[8]:
             return sorted(files, key=lambda x: x['code'])
 
         def get_stock_data(file_path):
-            from data import get_datahub
-            datahub = get_datahub()
+            from data.adapters.datalake_adapter import get_datalake_adapter
+            datalake = get_datalake_adapter()
             parts = file_path.split('/')
             if len(parts) >= 2:
                 code = parts[1].replace('.csv', '')
-                market = parts[0]
-                df = datahub.get_ohlcv_dataframe(code, market)
+                df = datalake.get_stock_daily_df(code, market="cn")
                 return df
             return None
 

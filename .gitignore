@@ -35,3 +35,9 @@ log/
 
 # environment
 .env
+
+# datalake
+datalake/
+
+#data_backup
+data_backup

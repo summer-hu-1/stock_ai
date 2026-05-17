@@ -13,6 +13,7 @@ from .models import (
 )
 from .cache import DataHubCache, get_cache
 from .unifier import UnifiedDataProvider, get_unified_provider
+from .adapters.datalake_adapter import DataLakeAdapter, get_datalake_adapter
 
 __all__ = [
     "DataHub",
@@ -31,4 +32,6 @@ __all__ = [
     "get_cache",
     "UnifiedDataProvider",
     "get_unified_provider",
+    "DataLakeAdapter",
+    "get_datalake_adapter",
 ]

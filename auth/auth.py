@@ -62,17 +62,21 @@ def login_user(username: str, password: str) -> tuple:
     user = get_user_by_username(db, username)
     
     if not user:
+        print(f"登录失败：用户不存在 - {username}")
         return False, "用户名不存在", None
     
     if not user.is_active:
+        print(f"登录失败：用户已被封禁 - {username}")
         return False, "用户已被封禁", None
     
     if not verify_password(password, user.password_hash):
+        print(f"登录失败：密码错误 - {username}")
         return False, "密码错误", None
     
     # 更新登录时间
-    update_user_last_login(db, username)
-    
+    user.last_login = datetime.now()
+    db.commit()
+
     # 在会话关闭前提取用户数据到字典，避免 detached instance 问题
     user_dict = {
         "id": user.id,
@@ -90,13 +94,16 @@ def login_user(username: str, password: str) -> tuple:
         "last_login": user.last_login.strftime("%Y-%m-%d %H:%M") if user.last_login else None
     }
     
+    print(f"登录成功：{username} - user_dict: {user_dict}")
+
     add_log(db, username, "login")
 
-    # 生成会话令牌
     import secrets
     session_token = secrets.token_hex(16)
-
-    return True, "登录成功", user_dict, session_token
+    
+    return_result = (True, "登录成功", user_dict, session_token)
+    print(f"login_user 返回: {return_result}")
+    return return_result
 
 
 def logout_user():
@@ -118,6 +125,10 @@ def logout_user():
 
 def set_session_user(user_dict: dict, session_token: str = None):
     """设置会话用户"""
+    print(f"set_session_user 被调用: user_dict={user_dict}")
+    if user_dict is None:
+        print("警告：set_session_user 传入了 None！")
+        return
     st.session_state["user"] = user_dict
     st.session_state["username"] = user_dict["username"]
     st.session_state["role"] = user_dict["role"]
@@ -125,6 +136,7 @@ def set_session_user(user_dict: dict, session_token: str = None):
     # 保存 session token
     if session_token:
         st.session_state["session_token"] = session_token
+    print(f"set_session_user 完成: session_state['user']={st.session_state.get('user')}")
 
 
 def is_logged_in() -> bool:
