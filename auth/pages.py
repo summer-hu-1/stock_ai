@@ -13,19 +13,19 @@ def show_login_page():
     
     # 调试信息
     with st.expander("🔍 调试信息", expanded=False):
-        from database.db import is_streamlit_cloud, get_db, get_all_users, get_user_count
+        from admin_auth.db import is_streamlit_cloud
+        from admin_auth.service import AdminService
+
         st.write(f"**Streamlit Cloud 环境**: {is_streamlit_cloud()}")
-        
-        db = next(get_db())
-        user_count = get_user_count(db)
+
+        users = AdminService.get_all_users()
+        user_count = len(users)
         st.write(f"**数据库用户数**: {user_count}")
-        
+
         if user_count > 0:
-            all_users = get_all_users(db)
             st.write("**所有用户列表**:")
-            for user in all_users:
+            for user in users:
                 st.write(f"- {user.username} ({user.email}) - role={user.role} - active={user.is_active}")
-        db.close()
     
     # 创建标签页
     tab1, tab2 = st.tabs(["🔐 登录", "📝 注册"])

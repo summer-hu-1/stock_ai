@@ -1,0 +1,32 @@
+{
+  "version": "1.0",
+  "created_at": "2026-05-16T00:25:44.801455",
+  "description": "A股日线数据 - DataLake格式",
+  "exchange_map": {
+    "000": "SZ",
+    "001": "SZ",
+    "002": "SZ",
+    "003": "SZ",
+    "300": "SZ",
+    "301": "SZ",
+    "600": "SH",
+    "601": "SH",
+    "603": "SH",
+    "605": "SH",
+    "688": "SH",
+    "689": "SH"
+  },
+  "columns": {
+    "code": "股票代码",
+    "date": "交易日期",
+    "open": "开盘价",
+    "high": "最高价",
+    "low": "最低价",
+    "close": "收盘价",
+    "volume": "成交量",
+    "amount": "成交额",
+    "turnover_rate": "换手率",
+    "change_pct": "涨跌幅(%)",
+    "amplitude": "振幅(%)"
+  }
+}

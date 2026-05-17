@@ -6,11 +6,9 @@
 import streamlit as st
 from bcrypt import hashpw, gensalt, checkpw
 from datetime import datetime, timedelta
-from database.db import (
-    get_db, get_user_by_username, get_user_by_email, create_user, 
-    update_user_last_login, increment_user_usage, toggle_user_active,
-    update_user_membership, add_log
-)
+
+from admin_auth.db import get_session
+from admin_auth.repository import AdminRepository
 
 
 def hash_password(password: str) -> str:
@@ -26,54 +24,51 @@ def verify_password(password: str, password_hash: str) -> bool:
 def register_user(username: str, password: str, email: str = None, name: str = None) -> tuple:
     """
     注册用户
-    
+
     Returns:
         (success: bool, message: str)
     """
-    db = next(get_db())
-    
-    # 检查用户名是否已存在
-    if get_user_by_username(db, username):
+    db = get_session()
+
+    if AdminRepository.get_user_by_username(db, username):
         return False, "用户名已存在"
-    
-    # 检查邮箱是否已存在
-    if email and get_user_by_email(db, email):
+
+    if email and AdminRepository.get_user_by_email(db, email):
         return False, "邮箱已被注册"
-    
-    # 创建用户
+
     password_hash = hash_password(password)
     try:
-        create_user(db, username, password_hash, email, name)
-        add_log(db, username, "register")
+        AdminRepository.create_user(db, username, password_hash, email, name)
+        AdminRepository.add_log(db, username, "register")
         return True, "注册成功"
     except Exception as e:
         return False, f"注册失败: {str(e)}"
+    finally:
+        db.close()
 
 
 def login_user(username: str, password: str) -> tuple:
     """
     登录用户
-    
+
     Returns:
         (success: bool, message: str, user_dict: dict or None)
     """
-    db = next(get_db())
-    
-    user = get_user_by_username(db, username)
-    
+    db = get_session()
+
+    user = AdminRepository.get_user_by_username(db, username)
+
     if not user:
         return False, "用户名不存在", None
-    
+
     if not user.is_active:
         return False, "用户已被封禁", None
-    
+
     if not verify_password(password, user.password_hash):
         return False, "密码错误", None
-    
-    # 更新登录时间
-    update_user_last_login(db, username)
-    
-    # 在会话关闭前提取用户数据到字典，避免 detached instance 问题
+
+    AdminRepository.update_user_last_login(db, username)
+
     user_dict = {
         "id": user.id,
         "username": user.username,
@@ -89,9 +84,10 @@ def login_user(username: str, password: str) -> tuple:
         "created_at": user.created_at.strftime("%Y-%m-%d %H:%M") if user.created_at else None,
         "last_login": user.last_login.strftime("%Y-%m-%d %H:%M") if user.last_login else None
     }
-    
-    add_log(db, username, "login")
-    
+
+    AdminRepository.add_log(db, username, "login")
+    db.close()
+
     return True, "登录成功", user_dict
 
 
@@ -99,8 +95,9 @@ def logout_user():
     """退出登录"""
     if "user" in st.session_state:
         username = st.session_state["user"]["username"]
-        db = next(get_db())
-        add_log(db, username, "logout")
+        db = get_session()
+        AdminRepository.add_log(db, username, "logout")
+        db.close()
     
     # 清除会话状态
     keys_to_remove = ["user", "username", "role", "membership"]
@@ -159,10 +156,10 @@ def record_analysis_usage():
     """记录分析使用次数"""
     if is_logged_in():
         username = st.session_state["user"]["username"]
-        db = next(get_db())
-        increment_user_usage(db, username)
-        
-        # 更新会话中的今日使用次数
+        db = get_session()
+        AdminRepository.increment_user_usage(db, username)
+        db.close()
+
         st.session_state["user"]["today_used"] += 1
 
 

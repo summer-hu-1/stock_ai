@@ -5,48 +5,14 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-# 先初始化数据库（确保表存在）
-from database.db import init_db
-init_db()
+from admin_auth.db import init_db as init_admin_db
+from admin_auth.service import AdminService
 
-# 初始化默认用户（如果不存在）
-from database.db import get_db, get_user_count, create_user, get_all_users, toggle_user_active
-try:
-    db = next(get_db())
-    user_count = get_user_count(db)
+init_admin_db()
 
-    # 检查是否需要强制重置
-    force_reset = False
-    try:
-        if st.secrets.get('IS_RESET_DB', '').lower() == 'true':
-            force_reset = True
-    except:
-        pass
-
-    if force_reset:
-        # 删除所有现有用户
-        all_users = get_all_users(db)
-        for u in all_users:
-            db.delete(u)
-        db.commit()
-        user_count = 0
-        st.sidebar.warning("⚠️ 已重置所有用户")
-
-    if user_count == 0:
-        import bcrypt
-        try:
-            admin_username = st.secrets.get('ADMIN_USERNAME', 'admin')
-            admin_password = st.secrets.get('ADMIN_PASSWORD', '123456')
-        except:
-            admin_username = 'admin'
-            admin_password = '123456'
-        password_hash = bcrypt.hashpw(admin_password.encode(), bcrypt.gensalt()).decode()
-        create_user(db, admin_username, password_hash, 'admin@stockai.com', '管理员')
-        st.sidebar.success(f"✅ 已创建默认管理员: {admin_username}")
-
-    db.close()
-except Exception as e:
-    st.sidebar.error(f"初始化用户失败: {e}")
+created, admin_username = AdminService.init_default_admin()
+if created:
+    st.sidebar.success(f"✅ 已创建默认管理员: {admin_username}")
 
 # 先检查登录状态
 from auth.auth import is_logged_in, get_user_quota_info
@@ -956,7 +922,7 @@ else:
 
     # 管理员后台
     if st.session_state.get("show_admin"):
-        from admin.dashboard import show_admin_dashboard, go_back
+        from admin_auth.dashboard import show_admin_dashboard, go_back
         show_admin_dashboard()
         if st.sidebar.button("🏠 返回主应用"):
             go_back()
