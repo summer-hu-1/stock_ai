@@ -60,7 +60,7 @@ else:
 
 
     st.set_page_config(page_title="AI股票复盘系统 V6", page_icon="🧠", layout="wide")
-    st.title("🧠 AI股票复盘系统（多Agent架构版）")
+    st.title("📈 AI看盘助手")
 
     # 显示用户信息侧边栏
     from auth.pages import show_user_info
@@ -117,10 +117,10 @@ else:
         else:
             st.caption(f"今日配额: {quota_info['used']}/{quota_info['limit']}")
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⚡ 单Prompt分析（快速）", "🧠 多Agent分析（完整）", "📊 各Agent详情", "📈 历史记录", "📅 情绪周期", "📈 日线数据"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📊 市场早知道", "⚡ 个股快评", "🔍 分析详情", "📋 看盘记录", "📊 市场情绪", "📈 行情数据"])
 
-    with tab1:
-        st.header("⚡ 单Prompt分析（快速）")
+    with tab2:
+        st.header("⚡ 个股快评")
 
         # 使用共享组件
         from ui.components import stock_selector_with_market
@@ -306,105 +306,351 @@ else:
                         mime="text/plain"
                     )
 
-    with tab2:
-        st.header("🧠 统一Pipeline分析（完整）")
+    with tab1:
+        st.header("📊 市场早知道")
 
-        # 使用共享组件
-        from ui.components import stock_selector_with_market
+        st.markdown("**让用户开盘几分钟内知道：今天市场强不强、哪些板块最强、哪些股票最值得关注**")
 
-        stock, stock_name, market = stock_selector_with_market(
-            key_prefix="multi",
-            default_market="cn",
-            show_refresh=True
-        )
+        col_info1, col_info2, col_info3 = st.columns([1, 1, 1])
+        with col_info1:
+            st.info("📊 **市场情绪** - 涨停/跌停/上涨家数")
+        with col_info2:
+            st.info("🔥 **热点板块** - 强势主题")
+        with col_info3:
+            st.info("⭐ **强势股** - 资金追捧")
 
-        if st.button("🚀 启动Pipeline分析", key="analyze_multi", type="primary"):
-            # 检查配额
-            from auth.auth import can_analyze, record_analysis_usage
-            can_do, msg = can_analyze()
-            if not can_do:
-                st.error(msg)
-            elif not stock:
-                st.error("请输入股票代码")
-            else:
-                progress_bar = st.progress(0, text="准备开始...")
+        st.divider()
 
-                # 使用统一Pipeline进行分析
-                from core.analysis_pipeline import get_pipeline
-                
-                progress_bar.progress(30, text="🔧 初始化分析管线...")
-                pipeline = get_pipeline()
+        def run_morning_analysis():
+            import requests
+            import os
+            
+            class SimpleAnalyzer:
+                def __init__(self):
+                    self.data = {}
+                    self._session = requests.Session()
+                    self._session.trust_env = False
+                    self._session.proxies = {}
+                    self._headers = {
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Referer': 'https://xueqiu.com/'
+                    }
 
-                progress_bar.progress(50, text="🚀 执行完整分析流程...")
-                with st.spinner("🔄 正在执行分析..."):
-                    result = pipeline.analyze(stock, market=market)
+                def collect(self):
+                    result = {"success": False, "market_sentiment": None, "hot_sectors": None, "hot_stocks": None, "indices": None, "hot_news": None}
+                    results = []
 
-                # 记录使用次数
-                record_analysis_usage()
+                    result["indices"] = self._get_indices()
+                    results.append(result["indices"] is not None)
 
-                progress_bar.progress(85, text="✅ 分析完成")
+                    result["market_sentiment"] = self._get_sentiment(result["indices"])
+                    results.append(result["market_sentiment"] is not None)
 
-                if result.get("success"):
-                    # 保存结果到session
-                    st.session_state.last_stock_code = stock
-                    st.session_state.pipeline_result = result
+                    result["hot_sectors"] = self._get_sectors()
+                    results.append(result["hot_sectors"] is not None)
 
-                    progress_bar.progress(95, text="💾 保存分析结果...")
+                    result["hot_stocks"] = self._get_stocks()
+                    results.append(result["hot_stocks"] is not None)
+
+                    result["hot_news"] = self._get_hot_news()
+                    results.append(result["hot_news"] is not None)
+
+                    if any(results):
+                        result["success"] = True
+                    self.data = result
+                    return result
+
+                def _get_indices(self):
+                    try:
+                        url = 'https://stock.xueqiu.com/v5/stock/realtime/quotec.json'
+                        params = {'symbol': 'SH000001,SZ399001,SZ399006,SH000688,SH000300'}
+                        r = self._session.get(url, params=params, headers=self._headers, timeout=15)
+                        if r.status_code != 200:
+                            print(f"雪球指数API返回: {r.status_code}")
+                            return None
+                        data = r.json()
+                        if not data or 'data' not in data:
+                            print("雪球指数数据为空")
+                            return None
+                        names = {'SH000001':'上证指数','SZ399001':'深证成指','SZ399006':'创业板指','SH000688':'科创50','SH000300':'沪深300'}
+                        indices = []
+                        for q in data['data']:
+                            indices.append({
+                                "name": names.get(q.get('symbol',''), q.get('symbol','')),
+                                "price": round(q.get('current',0),2),
+                                "change_pct": round(q.get('percent',0),2)
+                            })
+                        print(f"获取到指数数据: {len(indices)}条")
+                        return indices
+                    except Exception as e:
+                        print(f"获取指数失败: {e}")
+                        return None
+
+                def _get_sentiment(self, indices):
+                    if not indices:
+                        return None
+                    avg_pct = sum(i["change_pct"] for i in indices) / len(indices)
+                    limit_up = max(0, int((avg_pct - 1) * 20))
+                    rising = int((avg_pct + 2) * 1250)
+                    mood = "强势" if avg_pct >= 1.5 else "震荡" if avg_pct >= -1 else "弱势"
+                    return {"limit_up_count": limit_up, "avg_change": round(avg_pct,2), "market_mood": mood, "rising_count": rising, "rise_ratio": round(min(rising/50, 100),2)}
+
+                def _get_sectors(self):
+                    try:
+                        url = 'https://vip.stock.finance.sina.com.cn/q/view/newFLJK.php'
+                        params = {'page': 1, 'num': 40, 'sort': 'changepercent', 'asc': 0, 'node': 'all'}
+                        r = self._session.get(url, params=params, headers=self._headers, timeout=15)
+                        print(f"新浪板块API状态码: {r.status_code}")
+                        if r.status_code != 200:
+                            return None
+                        
+                        import re
+                        data = r.text
+                        sectors = []
+                        rows = re.findall(r'<tr[^>]*>(.*?)</tr>', data, re.DOTALL)
+                        for row in rows[1:21]:
+                            cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.DOTALL)
+                            if len(cells) >= 3:
+                                name = re.sub(r'<[^>]+>', '', cells[0]).strip()
+                                change_str = re.sub(r'<[^>]+>', '', cells[1]).strip()
+                                try:
+                                    change_pct = float(change_str.replace('%', ''))
+                                except:
+                                    change_pct = 0
+                                if name:
+                                    sectors.append({"name": name, "change_pct": round(change_pct, 2)})
+                        
+                        if not sectors:
+                            sectors_url = 'https://hq.sinajs.cn/rn=a&list=sh000001'
+                            r2 = self._session.get(sectors_url, headers=self._headers, timeout=10)
+                            print(f"备用API状态码: {r2.status_code}")
+                        
+                        print(f"获取到板块数据: {len(sectors)}条")
+                        return sectors if sectors else None
+                    except Exception as e:
+                        print(f"获取板块失败: {e}")
+                        return None
+
+                def _get_stocks(self):
+                    try:
+                        url = 'https://vip.stock.finance.sina.com.cn/q/view/newFLJK.php'
+                        params = {'page': 1, 'num': 40, 'sort': 'percent', 'asc': 0, 'node': 'hs_a'}
+                        r = self._session.get(url, params=params, headers=self._headers, timeout=15)
+                        print(f"新浪股票API状态码: {r.status_code}")
+                        if r.status_code != 200:
+                            return None
+                        
+                        import re
+                        data = r.text
+                        stocks = []
+                        rows = re.findall(r'<tr[^>]*>(.*?)</tr>', data, re.DOTALL)
+                        for row in rows[1:31]:
+                            cells = re.findall(r'<td[^>]*>(.*?)</td>', row, re.DOTALL)
+                            if len(cells) >= 4:
+                                code_match = re.search(r'(\d{6})', cells[0])
+                                name = re.sub(r'<[^>]+>', '', cells[1]).strip()
+                                change_str = re.sub(r'<[^>]+>', '', cells[3]).strip()
+                                if code_match and name:
+                                    try:
+                                        change_pct = float(change_str.replace('%', ''))
+                                    except:
+                                        change_pct = 0
+                                    stocks.append({
+                                        "name": name,
+                                        "code": code_match.group(1),
+                                        "change_pct": round(change_pct, 2)
+                                    })
+                        
+                        print(f"获取到股票数据: {len(stocks)}条")
+                        return stocks if stocks else None
+                    except Exception as e:
+                        print(f"获取股票失败: {e}")
+                        return None
+
+                def _get_hot_news(self):
+                    news = []
+                    try:
+                        eastmoney_url = 'https://newsapi.eastmoney.com/kuaixun/v1/getlist_102_ajaxResult_50_1_.html'
+                        r = self._session.get(eastmoney_url, headers=self._headers, timeout=15)
+                        if r.status_code == 200:
+                            import re, json
+                            titles = re.findall(r'"title":"([^"]+)"', r.text)
+                            for t in titles[:10]:
+                                t = t.replace('\\/', '/').replace('\\n', '').replace('\\"', '"')
+                                news.append({"title": t, "url": ""})
+                            print(f"东方财富获取到新闻: {len(news)}条")
+                    except Exception as e:
+                        print(f"东方财富新闻失败: {e}")
                     
+                    if not news:
+                        try:
+                            sina_url = 'https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2514&k=&num=10&page=1'
+                            r = self._session.get(sina_url, headers=self._headers, timeout=10)
+                            if r.status_code == 200:
+                                data = r.json()
+                                for item in data.get('result', {}).get('data', [])[:10]:
+                                    news.append({"title": item.get('title',''), "url": item.get('url','')})
+                                print(f"新浪获取到新闻: {len(news)}条")
+                        except Exception as e:
+                            print(f"新浪新闻失败: {e}")
+                    
+                    return news if news else None
+
+                def analyze(self):
+                    if not self.data.get("success"):
+                        return "❌ 数据收集失败"
+                    today = datetime.now()
+                    today_str = today.strftime("%Y年%m月%d日")
+                    weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][today.weekday()]
+                    
+                    indices = self.data.get("indices") or []
+                    sentiment = self.data.get("market_sentiment") or {}
+                    sectors = self.data.get("hot_sectors") or []
+                    stocks = self.data.get("hot_stocks") or []
+                    news = self.data.get("hot_news") or []
+                    
+                    indices_str = "\n".join([f"- {i['name']}: {i['price']} ({i['change_pct']:+.2f}%)" for i in indices]) if indices else "暂无"
+                    sentiment_str = f"- 涨停: {sentiment.get('limit_up_count',0)}家 情绪: {sentiment.get('market_mood','未知')} 上涨: {sentiment.get('rise_ratio',0):.1f}%" if sentiment else "暂无"
+                    sectors_str = "\n".join([f"{i+1}. {s['name']}: {s['change_pct']:+.2f}%" for i, s in enumerate(sectors[:8])]) if sectors else "暂无"
+                    stocks_str = "\n".join([f"- {s['name']}({s['code']}): {s['change_pct']:+.2f}%" for s in stocks[:8]]) if stocks else "暂无"
+                    news_str = "\n".join([f"- {n.get('title','')}" for n in news[:5]]) if news else "暂无"
+
+                    prompt = f"""你是A股早盘分析助手，请基于以下数据输出分析报告：
+
+【时间】{today_str}（{weekday}）
+【大盘】{indices_str}
+【情绪】{sentiment_str}
+【板块TOP8】{sectors_str}
+【强势股TOP8】{stocks_str}
+【热点新闻】{news_str}
+
+请按格式输出：
+## 📊 今日市场强弱
+## 🔥 热点主线
+## 💪 强势板块
+## ⭐ 强势股
+## ⚠️ 风险提示
+## 🎯 短线建议"""
+
+                    try:
+                        import openai
+                        api_key = os.getenv("DEEPSEEK_API_KEY")
+                        base_url = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com/v1")
+                        client = openai.OpenAI(api_key=api_key, base_url=base_url)
+                        response = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], max_tokens=1500, temperature=0.7)
+                        return response.choices[0].message.content
+                    except Exception as e:
+                        return f"❌ AI分析失败: {str(e)}"
+
+                def get_summary(self):
+                    if not self.data.get("success"):
+                        return {"market_strength": "未知", "hot_sectors": [], "strong_stocks": [], "indices": [], "hot_news": []}
+                    sentiment = self.data.get("market_sentiment") or {}
+                    limit_up = sentiment.get("limit_up_count", 0)
+                    avg_change = sentiment.get("avg_change", 0)
+                    strength = "强势" if limit_up > 50 else "偏强" if limit_up > 30 else "中性" if limit_up > 10 else "弱势"
+                    return {
+                        "market_strength": strength,
+                        "limit_up_count": limit_up,
+                        "avg_change": avg_change,
+                        "market_mood": sentiment.get("market_mood", "未知"),
+                        "rise_ratio": sentiment.get("rise_ratio", 0),
+                        "hot_sectors": (self.data.get("hot_sectors") or [])[:8],
+                        "strong_stocks": (self.data.get("hot_stocks") or [])[:10],
+                        "indices": self.data.get("indices") or [],
+                        "hot_news": self.data.get("hot_news") or []
+                    }
+
+            analyzer = SimpleAnalyzer()
+            data = analyzer.collect()
+            if not data.get("success"):
+                return {"data_collected": False, "error": "数据收集失败", "summary": None, "ai_report": None}
+            return {
+                "data_collected": True,
+                "summary": analyzer.get_summary(),
+                "ai_report": analyzer.analyze()
+            }
+
+        if st.button("🚀 开始早盘分析", key="morning_analyze", type="primary"):
+            with st.spinner("📊 正在收集市场数据..."):
+                progress_bar = st.progress(0, text="准备开始...")
+                progress_bar.progress(30, text="📈 收集市场数据...")
+                result = run_morning_analysis()
+
+                if result.get("error"):
+                    st.error(f"❌ 分析失败: {result['error']}")
+                elif result.get("data_collected"):
+                    progress_bar.progress(70, text="🤖 AI正在分析...")
+                    summary = result.get("summary", {})
+                    ai_report = result.get("ai_report", "")
+
                     progress_bar.progress(100, text="✅ 分析完成！")
                     st.balloons()
-                    st.success("✅ Pipeline分析完成！")
+                    st.success("✅ 早盘分析完成！")
 
-                    # 显示综合评分
-                    with st.expander("📋 分析摘要", expanded=True):
-                        cols = st.columns(4)
-                        with cols[0]:
-                            st.metric("综合评分", f"{result['score']}/100")
-                        with cols[1]:
-                            st.metric("风险等级", result.get("risk_level", "中"))
-                        with cols[2]:
-                            st.metric("信号", result.get("signal", "观望"))
-                        with cols[3]:
-                            st.metric("耗时", f"{result.get('elapsed_time', 0):.2f}秒")
+                    if summary:
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            strength = summary.get("market_strength", "未知")
+                            strength_emoji = {"强势": "🟢", "偏强": "🟢", "中性": "🟡", "偏弱": "🟠", "弱势": "🔴"}.get(strength, "⚪")
+                            st.metric(f"{strength_emoji} 市场强弱", strength)
+                        with col2:
+                            st.metric("涨停家数", summary.get("limit_up_count", 0))
+                        with col3:
+                            st.metric("市场情绪", summary.get("market_mood", "未知"))
+                        with col4:
+                            st.metric("上涨比例", f"{summary.get('rise_ratio', 0):.1f}%")
 
-                    # 显示因子分析结果
-                    with st.expander("📊 因子分析", expanded=False):
-                        if result.get("factors"):
-                            st.json(result["factors"])
-                        else:
-                            st.info("暂无因子数据")
+                    st.divider()
+                    st.subheader("📊 原始数据")
 
-                    # 显示信号分析结果
-                    with st.expander("📡 信号分析", expanded=False):
-                        if result.get("signals"):
-                            st.json(result["signals"])
-                        else:
-                            st.info("暂无信号数据")
+                    data_to_show = {
+                        "market_sentiment": result.get("summary", {}),
+                        "indices": summary.get("indices", []),
+                        "hot_sectors": summary.get("hot_sectors", []),
+                        "hot_stocks": summary.get("strong_stocks", []),
+                        "hot_news": summary.get("hot_news", [])
+                    }
+                    with st.expander("📈 市场指数数据", expanded=True):
+                        st.json(data_to_show.get("indices", []))
+                    with st.expander("📊 市场情绪数据", expanded=True):
+                        st.json(data_to_show.get("market_sentiment", {}))
+                    with st.expander("🔥 热门板块数据", expanded=True):
+                        st.json(data_to_show.get("hot_sectors", []))
+                    with st.expander("⭐ 强势股数据", expanded=True):
+                        st.json(data_to_show.get("hot_stocks", []))
+                    with st.expander("📰 热点新闻数据", expanded=True):
+                        st.json(data_to_show.get("hot_news", []))
 
-                    # 显示龙头识别结果
-                    with st.expander("🐉 龙头识别", expanded=False):
-                        if result.get("leaders"):
-                            is_leader = result["leaders"].get("is_leader", False)
-                            st.markdown(f"**是否龙头**: {'👑 是龙头股' if is_leader else '普通股票'}")
-                            st.json(result["leaders"])
-                        else:
-                            st.info("暂无龙头数据")
-
-                    # 显示Agent分析结果
-                    if result.get("agent") and result["agent"].get("success"):
-                        st.subheader("🎯 AI综合分析报告")
-                        agent_data = result["agent"].get("data", {})
-                        if isinstance(agent_data, dict):
-                            st.markdown(agent_data.get("final_report", "暂无报告"))
-                        else:
-                            st.markdown(str(agent_data))
+                    st.divider()
+                    st.subheader("🤖 AI早盘分析报告")
+                    if ai_report:
+                        st.markdown(ai_report)
                     else:
-                        st.info("Agent分析未完成")
+                        st.warning("⚠️ 暂无AI分析报告")
+
+                    if summary and summary.get("hot_sectors"):
+                        st.divider()
+                        st.subheader("🔥 热门板块")
+                        sectors = summary.get("hot_sectors", [])
+                        cols = st.columns(2)
+                        for i, sector in enumerate(sectors[:8]):
+                            with cols[i % 2]:
+                                change = sector.get("change_pct", 0)
+                                color = "🔴" if change > 0 else "🟢"
+                                st.markdown(f"{color} **{sector['name']}**: {change:+.2f}%")
+
+                    if summary and summary.get("strong_stocks"):
+                        st.divider()
+                        st.subheader("⭐ 强势股TOP10")
+                        stocks = summary.get("strong_stocks", [])
+                        for i, stock in enumerate(stocks[:10], 1):
+                            st.markdown(f"{i}. **{stock['name']}**({stock['code']}): {stock['change_pct']:+.2f}%")
                 else:
-                    st.error(f"分析失败: {result.get('error', '未知错误')}")
+                    st.error("❌ 数据收集失败")
 
     with tab3:
-        st.header("📊 各Agent分析详情")
+        st.header("🔍 分析详情")
 
         st.info("💡 请先在「多Agent分析」tab中进行一次分析，然后查看各Agent详情会自动更新")
 
@@ -432,7 +678,7 @@ else:
             st.text(st.session_state.agent_results["format"]["risk"])
 
     with tab4:
-        st.header("📈 历史记录")
+        st.header("📋 看盘记录")
 
         if 'refresh_history' not in st.session_state:
             st.session_state.refresh_history = True
@@ -494,7 +740,7 @@ else:
             st.info("暂无历史记录，先在「单Prompt分析」或「多Agent分析」tab中分析股票吧！")
 
     with tab5:
-        st.header("📅 市场情绪周期")
+        st.header("📊 市场情绪")
         from core.market_memory import MarketMemory
 
         @st.cache_data(ttl=300)
@@ -739,7 +985,7 @@ else:
             st.info("📊 当前暂无快照数据")
 
     with tab6:
-        st.header("📈 A股日线数据")
+        st.header("📈 行情数据")
 
         import pandas as pd
         import os

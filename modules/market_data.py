@@ -1,4 +1,3 @@
-import akshare as ak
 import pandas as pd
 from datetime import datetime
 import time
@@ -269,6 +268,7 @@ def test_api_connection():
     
     # 测试akshare
     try:
+        import akshare as ak
         start_time = time.time()
         df = ak.stock_zh_a_spot_em()
         response_time = (time.time() - start_time) * 1000
@@ -351,6 +351,7 @@ def get_stock_data(stock_code, use_cache=True, target_date=None):
 
     try:
         print(f"正在获取股票数据: {stock_code}")
+        import akshare as ak
         df = ak.stock_zh_a_spot_em()
 
         # akshare可能在内部捕获异常并返回None，需要检查
@@ -544,6 +545,7 @@ def get_stock_data_fast(stock_code, use_cache=True, target_date=None):
                 end_date = target_date.strftime('%Y%m%d')
         
         start_date = (datetime.now().replace(day=1)).strftime('%Y%m%d')
+        import akshare as ak
         df = ak.stock_zh_a_hist(symbol=stock_code, period='daily', start_date=start_date, end_date=end_date, adjust='')
 
         if df is None or not isinstance(df, pd.DataFrame) or df.empty:

@@ -1,4 +1,3 @@
-import akshare as ak
 import pandas as pd
 from datetime import datetime
 import sys
@@ -17,6 +16,7 @@ def _get_market_sentiment_from_akshare():
     从akshare获取市场情绪数据
     """
     try:
+        import akshare as ak
         df = ak.stock_zh_a_spot_em()
         if df is None or df.empty:
             return None, "akshare返回空数据"
@@ -325,6 +325,7 @@ def get_sector_data():
     获取板块涨跌排名数据（简化版）
     """
     try:
+        import akshare as ak
         df = ak.stock_board_industry_name_em()
         
         if df is None or df.empty:
@@ -400,6 +401,7 @@ def get_hot_sectors(use_cache=True):
 
     try:
         print("正在获取热门板块数据...")
+        import akshare as ak
         df = ak.stock_board_concept_name_em()
         
         if df is None or df.empty:
