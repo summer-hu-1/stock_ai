@@ -4,111 +4,100 @@
 """
 
 import streamlit as st
-from auth.auth import login_user, register_user, set_session_user, logout_user
+from datetime import datetime, timedelta
+from auth.auth import login_user, register_user, set_session_user, logout_user, get_user_by_username
+import extra_streamlit_components as argx
+
+# 初始化 Cookie 管理器
+def get_cookie_manager():
+    if "cookie_manager" not in st.session_state:
+        st.session_state["cookie_manager"] = argx.CookieManager()
+    return st.session_state["cookie_manager"]
+
+@st.dialog("登录 / 注册")
+def login_dialog():
+    """使用 st.dialog 实现的登录弹窗"""
+    cookie_manager = get_cookie_manager()
+    
+    # 标签页切换
+    tab1, tab2 = st.tabs(["🔐 登录", "📝 注册"])
+    
+    with tab1:
+        username = st.text_input("用户名", placeholder="请输入用户名", key="login_username_dialog")
+        password = st.text_input("密码", type="password", placeholder="请输入密码", key="login_password_dialog")
+        
+        remember_me = st.checkbox("记住我（保持登录状态）", value=True, key="remember_me_dialog")
+        
+        st.markdown("")
+        
+        if st.button("立即登录", use_container_width=True, type="primary", key="login_btn_dialog"):
+            if not username or not password:
+                st.error("请填写用户名和密码")
+            else:
+                with st.spinner("正在验证..."):
+                    success, message, user = login_user(username, password)
+                    
+                    if success:
+                        set_session_user(user)
+                        # 如果勾选了记住我，保存 cookie
+                        if remember_me:
+                            # 保存 30 天
+                            cookie_manager.set("saved_username", username, expires_at=datetime.now() + timedelta(days=30))
+                        
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(f"登录失败: {message}")
+        
+    with tab2:
+        reg_username = st.text_input("用户名", placeholder="请输入用户名", key="reg_username_dialog")
+        reg_email = st.text_input("邮箱", placeholder="请输入邮箱", key="reg_email_dialog")
+        reg_name = st.text_input("姓名", placeholder="请输入姓名（可选）", key="reg_name_dialog")
+        reg_password = st.text_input("密码", type="password", placeholder="请输入密码", key="reg_password_dialog")
+        reg_confirm = st.text_input("确认密码", type="password", placeholder="请再次输入密码", key="reg_confirm_dialog")
+        
+        if st.button("创建账号", use_container_width=True, type="primary", key="reg_btn_dialog"):
+            if not reg_username or not reg_password:
+                st.error("请填写用户名和密码")
+            elif reg_password != reg_confirm:
+                st.error("两次输入的密码不一致")
+            else:
+                with st.spinner("正在注册..."):
+                    success, message = register_user(reg_username, reg_password, reg_email, reg_name)
+                    if success:
+                        st.success(message)
+                        st.info("注册成功，请切换到登录页登录")
+                    else:
+                        st.error(f"注册失败: {message}")
+
+def check_auto_login():
+    """检查 Cookie 并尝试自动登录"""
+    # 如果已经登录，直接返回
+    if "user" in st.session_state and st.session_state["user"]:
+        return True
+        
+    cookie_manager = get_cookie_manager()
+    
+    # 这里的 get 是异步的，初次加载可能获取不到
+    # CookieManager 会在获取到数据后触发 streamlit rerun
+    saved_username = cookie_manager.get("saved_username")
+    
+    if saved_username:
+        user = get_user_by_username(saved_username)
+        if user:
+            set_session_user(user)
+            return True
+    return False
 
 def show_login_modal():
-    """显示登录/注册弹窗（使用Streamlit原生组件）"""
-    if "show_login_modal" not in st.session_state:
-        st.session_state["show_login_modal"] = False
-    
-    if st.session_state["show_login_modal"]:
-        # 清空主页面内容，只显示登录弹窗
-        st.empty()
-        
-        # 使用Streamlit原生布局创建居中的登录表单
-        st.markdown(
-            """
-            <style>
-            .login-container {
-                max-width: 420px;
-                margin: 0 auto;
-                padding: 40px;
-                background: linear-gradient(145deg, #2d2d2d, #1f1f1f);
-                border-radius: 20px;
-                box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-            }
-            </style>
-            """,
-            unsafe_allow_html=True
-        )
-        
-        # 创建三列布局，中间列显示登录表单
-        col1, col_main, col2 = st.columns([1, 2, 1])
-        
-        with col_main:
-            st.markdown('<div class="login-container">', unsafe_allow_html=True)
-            
-            # 弹窗头部
-            header_col1, header_col2 = st.columns([4, 1])
-            with header_col1:
-                st.subheader("欢迎回来")
-            with header_col2:
-                close_button = st.button("✕", key="close_login_modal", help="关闭")
-                if close_button:
-                    st.session_state["show_login_modal"] = False
-                    st.rerun()
-            
-            # 标签页切换
-            tab1, tab2 = st.tabs(["登录", "注册"])
-            
-            with tab1:
-                st.markdown("---")
-                
-                username = st.text_input("用户名", placeholder="请输入用户名", key="login_username")
-                password = st.text_input("密码", type="password", placeholder="请输入密码", key="login_password")
-                
-                col_remember, _ = st.columns([1, 3])
-                with col_remember:
-                    remember_me = st.checkbox("记住我")
-                
-                st.markdown("")
-                
-                if st.button("登录", use_container_width=True, type="primary", key="login_btn"):
-                    if not username or not password:
-                        st.error("请填写用户名和密码")
-                    else:
-                        with st.spinner("正在验证..."):
-                            success, message, user = login_user(username, password)
-                            
-                            if success:
-                                set_session_user(user)
-                                st.session_state["show_login_modal"] = False
-                                st.success(message)
-                                st.rerun()
-                            else:
-                                st.error(f"登录失败: {message}")
-                
-                st.markdown("---")
-                st.caption("忘记密码？联系管理员重置")
-            
-            with tab2:
-                st.markdown("---")
-                
-                username = st.text_input("用户名", placeholder="请输入用户名", key="reg_username")
-                email = st.text_input("邮箱", placeholder="请输入邮箱", key="reg_email")
-                name = st.text_input("姓名", placeholder="请输入姓名（可选）", key="reg_name")
-                password = st.text_input("密码", type="password", placeholder="请输入密码", key="reg_password")
-                confirm_password = st.text_input("确认密码", type="password", placeholder="请再次输入密码", key="reg_confirm_password")
-                
-                st.markdown("")
-                
-                if st.button("注册", use_container_width=True, type="primary", key="reg_btn"):
-                    if not username or not password:
-                        st.error("请填写用户名和密码")
-                    elif password != confirm_password:
-                        st.error("两次输入的密码不一致")
-                    else:
-                        with st.spinner("正在注册..."):
-                            success, message = register_user(username, password, email, name)
-                            
-                            if success:
-                                st.success(message)
-                                st.info("注册成功，请返回登录")
-                            else:
-                                st.error(f"注册失败: {message}")
-            
-            st.markdown('</div>', unsafe_allow_html=True)
+    """
+    显示登录/注册弹窗的触发器
+    由于 st.dialog 不能直接在逻辑中调用（需要作为函数装饰器），
+    这里检查 session_state 来决定是否显示。
+    """
+    if st.session_state.get("show_login_modal", False):
+        st.session_state["show_login_modal"] = False # 重置状态
+        login_dialog()
 
 
 def show_user_info_updated():

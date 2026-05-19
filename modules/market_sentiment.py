@@ -285,39 +285,45 @@ def get_market_sentiment(use_cache=True):
     # 尝试akshare主数据源
     print("正在获取市场情绪数据...")
     result, error = _get_market_sentiment_from_akshare()
+    data_source = "akshare"
 
     if result is None:
         print(f"⚠️ akshare市场情绪获取失败: {error}，尝试东方财富备用接口...")
+        data_source = "eastmoney"
 
         # 尝试东方财富备用数据源
         result, error = _get_market_sentiment_from_eastmoney()
 
         if result is None:
             print(f"⚠️ 东方财富备用接口也失败: {error}，尝试雪球API...")
+            data_source = "xueqiu"
 
             # 尝试雪球API
             result, error = _get_market_sentiment_from_xueqiu()
 
             if result is None:
                 print(f"⚠️ 雪球API也失败: {error}")
+                data_source = "cache"
 
                 # 返回缓存数据
                 if _sentiment_cache is not None:
                     print("📦 API失败，返回内存缓存数据")
-                    return _sentiment_cache
-                if cached:
+                    result = _sentiment_cache
+                elif cached:
                     print("📦 API失败，返回数据库缓存数据")
-                    return cached
+                    result = cached
+                else:
+                    # 无法获取任何数据，使用模拟数据
+                    print("⚠️ 所有API和缓存都失败，使用模拟市场情绪数据")
+                    result = _get_mock_market_sentiment()
+                    data_source = "mock"
+                    print("📦 返回模拟数据，请注意这不是真实市场数据")
 
-                # 无法获取任何数据，使用模拟数据
-                print("⚠️ 所有API和缓存都失败，使用模拟市场情绪数据")
-                result = _get_mock_market_sentiment()
-                print("📦 返回模拟数据，请注意这不是真实市场数据")
-
+    result["data_source"] = data_source
     save_market_sentiment(result)
     _sentiment_cache = result
     _sentiment_cache_time = time.time()
-    print("✅ 市场情绪数据已获取并保存")
+    print(f"✅ 市场情绪数据已获取并保存 (数据源: {data_source})")
     return result
 
 def get_sector_data():

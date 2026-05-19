@@ -99,6 +99,10 @@ def logout_user():
         AdminRepository.add_log(db, username, "logout")
         db.close()
     
+    # 清除 Cookie
+    if "cookie_manager" in st.session_state:
+        st.session_state["cookie_manager"].delete("saved_username")
+    
     # 清除会话状态
     keys_to_remove = ["user", "username", "role", "membership"]
     for key in keys_to_remove:
@@ -133,8 +137,11 @@ def can_analyze() -> tuple:
     Returns:
         (can_do: bool, message: str)
     """
+    # 游客模式逻辑
     if not is_logged_in():
-        return False, "请先登录"
+        # 游客默认限制，可以根据需要调整
+        # 这里允许游客分析，但不记录到特定用户
+        return True, "游客模式（可以分析）"
     
     user = st.session_state["user"]
     
@@ -161,6 +168,37 @@ def record_analysis_usage():
         db.close()
 
         st.session_state["user"]["today_used"] += 1
+    else:
+        # 游客模式下，可以使用 session_state 简单记录本次会话的使用次数
+        if "guest_used" not in st.session_state:
+            st.session_state["guest_used"] = 0
+        st.session_state["guest_used"] += 1
+
+
+def get_user_by_username(username: str) -> dict:
+    """通过用户名获取用户信息（用于自动登录）"""
+    db = get_session()
+    user = AdminRepository.get_user_by_username(db, username)
+    db.close()
+    
+    if not user or not user.is_active:
+        return None
+        
+    return {
+        "id": user.id,
+        "username": user.username,
+        "name": user.name,
+        "email": user.email,
+        "role": user.role,
+        "membership": user.membership,
+        "vip_expire": user.vip_expire.strftime("%Y-%m-%d") if user.vip_expire else None,
+        "token_balance": user.token_balance,
+        "daily_limit": user.daily_limit,
+        "today_used": user.today_used,
+        "is_active": user.is_active,
+        "created_at": user.created_at.strftime("%Y-%m-%d %H:%M") if user.created_at else None,
+        "last_login": user.last_login.strftime("%Y-%m-%d %H:%M") if user.last_login else None
+    }
 
 
 def get_user_info() -> dict:
