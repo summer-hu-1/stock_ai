@@ -24,6 +24,7 @@ def init_db():
         market_mood TEXT,
         ai_summary TEXT,
         mode TEXT,
+        username TEXT DEFAULT 'guest',
         created_at TEXT
     )
     """)
@@ -86,6 +87,10 @@ def init_db():
         cursor.execute("ALTER TABLE stock_analysis ADD COLUMN mode TEXT")
         conn.commit()
         print("✅ 已添加 mode 列到 stock_analysis 表")
+    if 'username' not in columns:
+        cursor.execute("ALTER TABLE stock_analysis ADD COLUMN username TEXT DEFAULT 'guest'")
+        conn.commit()
+        print("✅ 已添加 username 列到 stock_analysis 表")
 
     conn.close()
 
@@ -140,7 +145,7 @@ def cleanup_old_data_if_needed():
         conn.close()
 
 
-def save_analysis(stock_data, ai_result, market_mood="", mode=""):
+def save_analysis(stock_data, ai_result, market_mood="", mode="", username="guest"):
     """保存个股分析记录"""
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -158,8 +163,9 @@ def save_analysis(stock_data, ai_result, market_mood="", mode=""):
             market_mood,
             ai_summary,
             mode,
+            username,
             created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             stock_data["code"],
             stock_data["name"],
@@ -171,12 +177,13 @@ def save_analysis(stock_data, ai_result, market_mood="", mode=""):
             market_mood,
             ai_result,
             mode,
+            username,
             datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         ))
 
         conn.commit()
         conn.close()
-        print(f"✅ 分析记录已保存: {stock_data['name']}({stock_data['code']})")
+        print(f"✅ 分析记录已保存: {stock_data['name']}({stock_data['code']}) [用户: {username}]")
         return True
     except Exception as e:
         print(f"❌ 保存分析记录失败: {e}")
@@ -333,19 +340,29 @@ def get_cached_hot_sectors():
     return None
 
 
-def get_stock_history(stock_code, limit=20):
-    """获取股票历史分析记录"""
+def get_stock_history(stock_code, limit=20, username=None):
+    """获取股票历史分析记录，可按用户过滤"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute("""
-    SELECT id, stock_code, stock_name, price, change_pct, volume, turnover, 
-           amplitude, market_mood, ai_summary, mode, created_at
-    FROM stock_analysis
-    WHERE stock_code = ?
-    ORDER BY created_at DESC
-    LIMIT ?
-    """, (stock_code, limit))
+    if username:
+        cursor.execute("""
+        SELECT id, stock_code, stock_name, price, change_pct, volume, turnover, 
+               amplitude, market_mood, ai_summary, mode, created_at
+        FROM stock_analysis
+        WHERE stock_code = ? AND username = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        """, (stock_code, username, limit))
+    else:
+        cursor.execute("""
+        SELECT id, stock_code, stock_name, price, change_pct, volume, turnover, 
+               amplitude, market_mood, ai_summary, mode, created_at
+        FROM stock_analysis
+        WHERE stock_code = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        """, (stock_code, limit))
 
     rows = cursor.fetchall()
     conn.close()
@@ -408,16 +425,24 @@ def get_market_sentiment_history(limit=30):
     return result
 
 
-def get_all_stocks():
-    """获取所有分析过的股票"""
+def get_all_stocks(username=None):
+    """获取所有分析过的股票，可按用户过滤"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
-    cursor.execute("""
-    SELECT DISTINCT stock_code, stock_name
-    FROM stock_analysis
-    ORDER BY stock_code
-    """)
+    if username:
+        cursor.execute("""
+        SELECT DISTINCT stock_code, stock_name
+        FROM stock_analysis
+        WHERE username = ?
+        ORDER BY stock_code
+        """, (username,))
+    else:
+        cursor.execute("""
+        SELECT DISTINCT stock_code, stock_name
+        FROM stock_analysis
+        ORDER BY stock_code
+        """)
 
     rows = cursor.fetchall()
     conn.close()

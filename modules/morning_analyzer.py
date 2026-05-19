@@ -1,10 +1,12 @@
 """
-AI 早盘市场分析模块 - 完全独立版本
+AI 早盘市场分析模块 - 统一版本
 核心定位：帮助用户开盘几分钟内了解市场
 
 数据来源：
 - 雪球API：获取市场情绪、热门股票、指数数据
 - Tavily Search：获取热点新闻和市场动态
+- 东方财富：备用新闻源
+- 新浪财经：二级备用新闻源
 """
 
 import pandas as pd
@@ -14,6 +16,7 @@ import sys
 import os
 import requests
 import json
+import re
 
 # 禁用代理环境变量
 os.environ['HTTP_PROXY'] = ''
@@ -260,33 +263,67 @@ class MorningAnalyzer:
             return None
 
     def _get_hot_news_tavily(self) -> Optional[List[Dict]]:
-        """使用Tavily Search获取热点新闻"""
+        """使用多渠道获取热点新闻（Tavily + 东方财富 + 新浪备用）"""
+        news = []
+        
+        # 渠道1: Tavily Search
         try:
             api_key = os.getenv("TAVILY_API_KEY")
-            if not api_key:
-                print("未配置Tavily API Key")
-                return None
-
-            from tavily import TavilyClient
-            
-            tavily = TavilyClient(api_key=api_key)
-            today = datetime.now().strftime("%Y-%m-%d")
-            query = f"A股市场 {today} 热点新闻 财经要闻 政策消息"
-            
-            response = tavily.search(query, max_results=8)
-            
-            news = []
-            for result in response.get('results', []):
-                news.append({
-                    "title": result.get('title', ''),
-                    "url": result.get('url', ''),
-                    "summary": result.get('summary', '')
-                })
-
-            return news if news else None
+            if api_key:
+                from tavily import TavilyClient
+                tavily = TavilyClient(api_key=api_key)
+                today = datetime.now().strftime("%Y-%m-%d")
+                query = f"A股市场 {today} 热点新闻 财经要闻 政策消息"
+                response = tavily.search(query, max_results=8)
+                for result in response.get('results', []):
+                    news.append({
+                        "title": result.get('title', ''),
+                        "url": result.get('url', ''),
+                        "summary": result.get('summary', '')
+                    })
+                if news:
+                    print(f"Tavily获取到新闻: {len(news)}条")
         except Exception as e:
             print(f"Tavily获取新闻失败: {e}")
-            return None
+        
+        # 渠道2: 东方财富快讯
+        if not news:
+            try:
+                eastmoney_url = 'https://newsapi.eastmoney.com/kuaixun/v1/getlist_102_ajaxResult_50_1_.html'
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+                }
+                r = requests.get(eastmoney_url, headers=headers, timeout=15)
+                if r.status_code == 200:
+                    titles = re.findall(r'"title":"([^"]+)"', r.text)
+                    for t in titles[:10]:
+                        t = t.replace('\\/', '/').replace('\\n', '').replace('\\"', '"')
+                        news.append({"title": t, "url": "", "summary": ""})
+                    print(f"东方财富获取到新闻: {len(news)}条")
+            except Exception as e:
+                print(f"东方财富新闻失败: {e}")
+        
+        # 渠道3: 新浪财经备用
+        if not news:
+            try:
+                sina_url = 'https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2514&k=&num=10&page=1'
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+                }
+                r = requests.get(sina_url, headers=headers, timeout=10)
+                if r.status_code == 200:
+                    data = r.json()
+                    for item in data.get('result', {}).get('data', [])[:10]:
+                        news.append({
+                            "title": item.get('title', ''),
+                            "url": item.get('url', ''),
+                            "summary": ""
+                        })
+                    print(f"新浪获取到新闻: {len(news)}条")
+            except Exception as e:
+                print(f"新浪新闻失败: {e}")
+        
+        return news if news else None
 
     def _get_deepseek_client(self):
         """获取DeepSeek客户端"""

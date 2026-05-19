@@ -25,6 +25,12 @@ from modules.market_sentiment import get_market_sentiment, get_hot_sectors, anal
 
 init_db()
 
+def get_current_username():
+    """获取当前用户名，未登录则返回 'guest'"""
+    if "user" in st.session_state and st.session_state["user"]:
+        return st.session_state["user"]["username"]
+    return "guest"
+
 def load_company_data():
     """从 akshare 加载全量公司信息到数据库"""
     import akshare as ak
@@ -117,7 +123,7 @@ if not user_logged_in:
     # 配额信息
     if not user_logged_in:
         guest_used = st.session_state.get("guest_used", 0)
-        st.sidebar.info(f"🎯 本次会话已使用: {guest_used} 次")
+        st.sidebar.info(f"🎯 游客模式（剩余 {max(0, 5 - guest_used)}/5 次）")
     else:
         quota_info = get_user_quota_info()
         if quota_info['unlimited']:
@@ -165,7 +171,7 @@ with tab2:
         data_mode = st.radio(
             "📊 模式",
             ["⚡极速", "📈标准", "🔍完整"],
-            index=0,
+            index=2,
             horizontal=True,
             label_visibility="collapsed"
         )
@@ -380,7 +386,7 @@ with tab2:
                     market_mood = sentiment_data.get('market_mood', '未知')
                     if market_mood == "待获取":
                         market_mood = f"极速模式"
-                    save_analysis(stock_data, result, market_mood, mode)
+                    save_analysis(stock_data, result, market_mood, mode, get_current_username())
 
                 progress_bar.progress(100, text="✅ 分析完成！")
                 st.balloons()
@@ -399,371 +405,141 @@ with tab2:
 with tab1:
     st.header("📊 市场早知道")
 
-    st.markdown("**让用户开盘几分钟内知道：今天市场强不强、哪些板块最强、哪些股票最值得关注**")
+    # 初始化分析结果状态
+    if "morning_result" not in st.session_state:
+        st.session_state["morning_result"] = None
 
-    col_info1, col_info2, col_info3 = st.columns([1, 1, 1])
-    with col_info1:
-        st.info("📊 **市场情绪** - 涨停/跌停/上涨家数")
-    with col_info2:
-        st.info("🔥 **热点板块** - 强势主题")
-    with col_info3:
-        st.info("⭐ **强势股** - 资金追捧")
+    # 如果已有分析结果，显示结果视图
+    if st.session_state["morning_result"] is not None:
+        result = st.session_state["morning_result"]
 
-    st.divider()
+        if st.button("🔄 返回重新分析", key="morning_back"):
+            st.session_state["morning_result"] = None
+            st.rerun()
 
-    def run_morning_analysis():
-            import os
-            from modules.market_sentiment import get_market_sentiment, get_hot_sectors
-            
-            class EnhancedAnalyzer:
-                def __init__(self):
-                    self.data = {}
-                
-                def collect(self):
-                    result = {"success": False, "market_sentiment": None, "hot_sectors": None, "indices": None, "hot_news": None}
-                    results = []
-                    
-                    print("正在获取市场情绪数据...")
-                    try:
-                        sentiment = get_market_sentiment(use_cache=False)
-                        result["market_sentiment"] = sentiment
-                        results.append(True)
-                        print("✅ 市场情绪数据获取成功")
-                    except Exception as e:
-                        print(f"❌ 市场情绪数据获取失败: {e}")
-                        results.append(False)
-                    
-                    print("正在获取热门板块数据...")
-                    try:
-                        sectors = get_hot_sectors(use_cache=False)
-                        result["hot_sectors"] = sectors
-                        results.append(True)
-                        print("✅ 热门板块数据获取成功")
-                    except Exception as e:
-                        print(f"❌ 热门板块数据获取失败: {e}")
-                        results.append(False)
-                    
-                    print("正在获取指数数据...")
-                    try:
-                        indices = self._get_indices()
-                        result["indices"] = indices
-                        results.append(True)
-                        print("✅ 指数数据获取成功")
-                    except Exception as e:
-                        print(f"❌ 指数数据获取失败: {e}")
-                        results.append(False)
-                    
-                    print("正在获取热点新闻...")
-                    try:
-                        news = self._get_hot_news()
-                        result["hot_news"] = news
-                        results.append(True)
-                        print("✅ 热点新闻获取成功")
-                    except Exception as e:
-                        print(f"❌ 热点新闻获取失败: {e}")
-                        results.append(False)
-                    
-                    if any(results):
-                        result["success"] = True
-                    self.data = result
-                    return result
-                
-                def _get_indices(self):
-                    try:
-                        import akshare as ak
-                        index_data = ak.stock_zh_index_spot()
-                        target_indices = ['上证指数', '深证成指', '创业板指', '科创50', '沪深300']
-                        indices = []
-                        
-                        for _, row in index_data.iterrows():
-                            name = row.get('名称', '')
-                            if name in target_indices:
-                                price = round(row.get('最新价', 0), 2)
-                                change_pct = round(row.get('涨跌幅', 0), 2)
-                                indices.append({
-                                    "name": name,
-                                    "price": price,
-                                    "change_pct": change_pct
-                                })
-                        
-                        if not indices:
-                            return self._get_indices_backup()
-                        
-                        print(f"获取到指数数据: {len(indices)}条")
-                        return indices
-                    except Exception as e:
-                        print(f"akshare获取指数失败: {e}")
-                        return self._get_indices_backup()
-                
-                def _get_indices_backup(self):
-                    try:
-                        import requests
-                        url = 'https://stock.xueqiu.com/v5/stock/realtime/quotec.json'
-                        params = {'symbol': 'SH000001,SZ399001,SZ399006,SH000688,SH000300'}
-                        headers = {
-                            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-                            'Referer': 'https://xueqiu.com/'
-                        }
-                        r = requests.get(url, params=params, headers=headers, timeout=15)
-                        if r.status_code != 200:
-                            return None
-                        data = r.json()
-                        if not data or 'data' not in data:
-                            return None
-                        names = {'SH000001':'上证指数','SZ399001':'深证成指','SZ399006':'创业板指','SH000688':'科创50','SH000300':'沪深300'}
-                        indices = []
-                        for q in data['data']:
-                            indices.append({
-                                "name": names.get(q.get('symbol',''), q.get('symbol','')),
-                                "price": round(q.get('current',0),2),
-                                "change_pct": round(q.get('percent',0),2)
-                            })
-                        return indices
-                    except Exception as e:
-                        print(f"备用指数API失败: {e}")
-                        return None
-                
-                def _get_hot_news(self):
-                    news = []
-                    try:
-                        import requests
-                        eastmoney_url = 'https://newsapi.eastmoney.com/kuaixun/v1/getlist_102_ajaxResult_50_1_.html'
-                        headers = {
-                            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-                        }
-                        r = requests.get(eastmoney_url, headers=headers, timeout=15)
-                        if r.status_code == 200:
-                            import re
-                            titles = re.findall(r'"title":"([^"]+)"', r.text)
-                            for t in titles[:10]:
-                                t = t.replace('\\/', '/').replace('\\n', '').replace('\\"', '"')
-                                news.append({"title": t, "url": ""})
-                            print(f"东方财富获取到新闻: {len(news)}条")
-                    except Exception as e:
-                        print(f"东方财富新闻失败: {e}")
-                    
-                    if not news:
-                        try:
-                            import requests
-                            sina_url = 'https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=2514&k=&num=10&page=1'
-                            headers = {
-                                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-                            }
-                            r = requests.get(sina_url, headers=headers, timeout=10)
-                            if r.status_code == 200:
-                                data = r.json()
-                                for item in data.get('result', {}).get('data', [])[:10]:
-                                    news.append({"title": item.get('title',''), "url": item.get('url','')})
-                                print(f"新浪获取到新闻: {len(news)}条")
-                        except Exception as e:
-                            print(f"新浪新闻失败: {e}")
-                    
-                    return news if news else None
-                
-                def analyze(self):
-                    if not self.data.get("success"):
-                        return "❌ 数据收集失败"
-                    today = datetime.now()
-                    today_str = today.strftime("%Y年%m月%d日")
-                    weekday = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][today.weekday()]
-                    
-                    indices = self.data.get("indices") or []
-                    sentiment = self.data.get("market_sentiment") or {}
-                    sectors = self.data.get("hot_sectors") or []
-                    news = self.data.get("hot_news") or []
-                    
-                    indices_str = "\n".join([f"- {i['name']}: {i['price']} ({i['change_pct']:+.2f}%)" for i in indices]) if indices else "暂无"
-                    sentiment_str = (
-                        f"- 涨停: {sentiment.get('limit_up_count',0)}家, 跌停: {sentiment.get('limit_down_count',0)}家\n"
-                        f"- 强势股: {sentiment.get('strong_count',0)}家, 弱势股: {sentiment.get('weak_count',0)}家\n"
-                        f"- 情绪: {sentiment.get('market_mood','未知')}, 上涨: {sentiment.get('rise_ratio',0):.1f}%\n"
-                        f"- 平均涨跌: {sentiment.get('avg_change',0)}%, 炸板率: {sentiment.get('炸板率','未知')}"
-                    ) if sentiment else "暂无"
-                    
-                    valid_sectors = [s for s in sectors if isinstance(s, dict) and 'name' in s and 'change_pct' in s]
-                    sectors_str = "\n".join([f"{i+1}. {s['name']}: {s['change_pct']:+.2f}%" for i, s in enumerate(valid_sectors[:8])]) if valid_sectors else "暂无"
-                    
-                    news_str = "\n".join([f"- {n.get('title','')}" for n in news[:5]]) if news else "暂无"
-                    
-                    data_source = sentiment.get('data_source', 'unknown')
-                    source_label = {
-                        "akshare": "真实市场数据",
-                        "eastmoney": "真实市场数据",
-                        "xueqiu": "估算数据",
-                        "cache": "缓存数据",
-                        "mock": "模拟数据"
-                    }.get(data_source, "未知数据")
-                    
-                    prompt = f"""你是A股早盘分析助手，请基于以下数据输出分析报告：
+        st.success("✅ 早盘分析完成！")
 
-【时间】{today_str}（{weekday}）
-【数据来源】{source_label}
-【大盘指数】{indices_str}
-【市场情绪】{sentiment_str}
-【热门板块TOP8】{sectors_str}
-【热点新闻】{news_str}
+        summary = result.get("summary", {})
+        if summary:
+            data_source = summary.get("data_source", "unknown")
+            source_label = {
+                "akshare": "📊 真实市场数据",
+                "eastmoney": "📊 真实市场数据",
+                "xueqiu": "📊 估算数据",
+                "cache": "📦 缓存数据",
+                "mock": "⚠️ 模拟数据",
+                "unknown": "❓ 未知数据"
+            }.get(data_source, "❓ 未知数据")
+            st.info(f"数据来源: {source_label}")
 
-请按格式输出：
-## 📊 今日市场强弱
-## 🔥 热点主线
-## 💪 强势板块
-## ⚠️ 风险提示
-## 🎯 短线建议"""
-                    
-                    try:
-                        import openai
-                        api_key = os.getenv("DEEPSEEK_API_KEY")
-                        base_url = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com/v1")
-                        client = openai.OpenAI(api_key=api_key, base_url=base_url)
-                        response = client.chat.completions.create(model="deepseek-chat", messages=[{"role":"user","content":prompt}], max_tokens=1800, temperature=0.7)
-                        return response.choices[0].message.content
-                    except Exception as e:
-                        return f"❌ AI分析失败: {str(e)}"
-                
-                def get_summary(self):
-                    if not self.data.get("success"):
-                        return {"market_strength": "未知", "hot_sectors": [], "indices": [], "hot_news": [], "market_sentiment": {}}
-                    
-                    sentiment = self.data.get("market_sentiment") or {}
-                    limit_up = sentiment.get("limit_up_count", 0)
-                    avg_change = sentiment.get("avg_change", 0)
-                    strength = "强势" if limit_up > 50 else "偏强" if limit_up > 30 else "中性" if limit_up > 10 else "弱势"
-                    
-                    sectors = self.data.get("hot_sectors") or []
-                    valid_sectors = [s for s in sectors if isinstance(s, dict) and 'name' in s and 'change_pct' in s]
-                    
-                    return {
-                        "market_strength": strength,
-                        "limit_up_count": limit_up,
-                        "limit_down_count": sentiment.get("limit_down_count", 0),
-                        "avg_change": avg_change,
-                        "market_mood": sentiment.get("market_mood", "未知"),
-                        "rise_ratio": sentiment.get("rise_ratio", 0),
-                        "strong_count": sentiment.get("strong_count", 0),
-                        "weak_count": sentiment.get("weak_count", 0),
-                        "data_source": sentiment.get("data_source", "unknown"),
-                        "hot_sectors": valid_sectors[:10],
-                        "indices": self.data.get("indices") or [],
-                        "hot_news": self.data.get("hot_news") or [],
-                        "market_sentiment": sentiment
-                    }
-            
-            analyzer = EnhancedAnalyzer()
-            data = analyzer.collect()
-            if not data.get("success"):
-                return {"data_collected": False, "error": "数据收集失败", "summary": None, "ai_report": None}
-            return {
-                "data_collected": True,
-                "summary": analyzer.get_summary(),
-                "ai_report": analyzer.analyze()
-            }
+            col1, col2, col3, col4, col5, col6 = st.columns(6)
+            with col1:
+                strength = summary.get("market_strength", "未知")
+                strength_emoji = {"强势": "🟢", "偏强": "🟢", "中性": "🟡", "偏弱": "🟠", "弱势": "🔴"}.get(strength, "⚪")
+                st.metric(f"{strength_emoji} 市场强弱", strength)
+            with col2:
+                st.metric("涨停家数", summary.get("limit_up_count", 0))
+            with col3:
+                st.metric("跌停家数", summary.get("limit_down_count", 0))
+            with col4:
+                st.metric("强势股(≥5%)", summary.get("strong_count", 0))
+            with col5:
+                st.metric("弱势股(≤-5%)", summary.get("weak_count", 0))
+            with col6:
+                st.metric("市场情绪", summary.get("market_mood", "未知"))
 
-    if st.button("🚀 开始早盘分析", key="morning_analyze", type="primary"):
-        with st.spinner("📊 正在收集市场数据..."):
-            progress_bar = st.progress(0, text="准备开始...")
-            progress_bar.progress(30, text="📈 收集市场数据...")
-            result = run_morning_analysis()
+            st.divider()
+            st.subheader("📈 大盘指数")
+            indices = summary.get("indices", [])
+            if indices:
+                cols_idx = st.columns(len(indices))
+                for i, idx in enumerate(indices):
+                    with cols_idx[i]:
+                        color = "🔴" if idx.get("change_pct", 0) > 0 else "🟢"
+                        st.metric(idx['name'], f"{idx['price']}", f"{color} {idx['change_pct']:+.2f}%")
 
-            if result.get("error"):
-                st.error(f"❌ 分析失败: {result['error']}")
-            elif result.get("data_collected"):
-                progress_bar.progress(70, text="🤖 AI正在分析...")
-                summary = result.get("summary", {})
-                ai_report = result.get("ai_report", "")
+            st.divider()
+            st.subheader("📊 市场情绪指标")
+            sentiment = summary.get("market_sentiment", {})
+            col_sent1, col_sent2, col_sent3 = st.columns(3)
+            with col_sent1:
+                st.markdown(f"**平均涨跌**: {sentiment.get('avg_change', 'N/A')}%")
+                st.markdown(f"**炸板率**: {sentiment.get('炸板率', 'N/A')}")
+            with col_sent2:
+                st.markdown(f"**上涨比例**: {sentiment.get('rise_ratio', 'N/A')}%")
+                st.markdown(f"**情绪周期**: {sentiment.get('emotion_cycle', 'N/A')}")
+            with col_sent3:
+                st.markdown(f"**连板高度**: {sentiment.get('连板高度', 'N/A')}")
+                st.markdown(f"**昨涨停数**: {sentiment.get('昨涨停数', 'N/A')}")
 
-                progress_bar.progress(100, text="✅ 分析完成！")
-                st.balloons()
-                st.success("✅ 早盘分析完成！")
-
-                if summary:
-                    data_source = summary.get("data_source", "unknown")
-                    source_label = {
-                        "akshare": "📊 真实市场数据",
-                        "eastmoney": "📊 真实市场数据",
-                        "xueqiu": "📊 估算数据",
-                        "cache": "📦 缓存数据",
-                        "mock": "⚠️ 模拟数据",
-                        "unknown": "❓ 未知数据"
-                    }.get(data_source, "❓ 未知数据")
-                    st.info(f"数据来源: {source_label}")
-                    
-                    col1, col2, col3, col4, col5, col6 = st.columns(6)
-                    with col1:
-                        strength = summary.get("market_strength", "未知")
-                        strength_emoji = {"强势": "🟢", "偏强": "🟢", "中性": "🟡", "偏弱": "🟠", "弱势": "🔴"}.get(strength, "⚪")
-                        st.metric(f"{strength_emoji} 市场强弱", strength)
-                    with col2:
-                        st.metric("涨停家数", summary.get("limit_up_count", 0))
-                    with col3:
-                        st.metric("跌停家数", summary.get("limit_down_count", 0))
-                    with col4:
-                        st.metric("强势股(≥5%)", summary.get("strong_count", 0))
-                    with col5:
-                        st.metric("弱势股(≤-5%)", summary.get("weak_count", 0))
-                    with col6:
-                        st.metric("市场情绪", summary.get("market_mood", "未知"))
-                    
-                    st.divider()
-                    st.subheader("📈 大盘指数")
-                    indices = summary.get("indices", [])
-                    if indices:
-                        cols_idx = st.columns(len(indices))
-                        for i, idx in enumerate(indices):
-                            with cols_idx[i]:
-                                color = "🔴" if idx.get("change_pct", 0) > 0 else "🟢"
-                                st.metric(f"{idx['name']}", f"{idx['price']}", f"{color} {idx['change_pct']:+.2f}%")
-                    
-                    st.divider()
-                    st.subheader("📊 市场情绪指标")
-                    sentiment = summary.get("market_sentiment", {})
-                    col_sent1, col_sent2, col_sent3 = st.columns(3)
-                    with col_sent1:
-                        st.markdown(f"**平均涨跌**: {sentiment.get('avg_change', 'N/A')}%")
-                        st.markdown(f"**炸板率**: {sentiment.get('炸板率', 'N/A')}")
-                    with col_sent2:
-                        st.markdown(f"**上涨比例**: {sentiment.get('rise_ratio', 'N/A')}%")
-                        st.markdown(f"**情绪周期**: {sentiment.get('emotion_cycle', 'N/A')}")
-                    with col_sent3:
-                        st.markdown(f"**连板高度**: {sentiment.get('连板高度', 'N/A')}")
-                        st.markdown(f"**昨涨停数**: {sentiment.get('昨涨停数', 'N/A')}")
-                    
-                    st.divider()
-                    st.subheader("🤖 AI早盘分析报告")
-                    if ai_report:
-                        st.markdown(ai_report)
-                    else:
-                        st.warning("⚠️ 暂无AI分析报告")
-                    
-                    if summary and summary.get("hot_sectors"):
-                        st.divider()
-                        st.subheader("🔥 热门板块TOP10")
-                        sectors = summary.get("hot_sectors", [])
-                        cols = st.columns(2)
-                        for i, sector in enumerate(sectors[:10]):
-                            with cols[i % 2]:
-                                change = sector.get("change_pct", 0)
-                                color = "🔴" if change > 0 else "🟢"
-                                st.markdown(f"{color} **{sector['name']}**: {change:+.2f}%")
-                    
-                    if summary and summary.get("hot_news"):
-                        st.divider()
-                        st.subheader("📰 热点新闻")
-                        news = summary.get("hot_news", [])
-                        for i, n in enumerate(news[:10], 1):
-                            st.markdown(f"{i}. {n.get('title', '')}")
-                    
-                    st.divider()
-                    st.subheader("📦 原始数据")
-                    data_to_show = {
-                        "market_sentiment": result.get("summary", {}),
-                        "indices": summary.get("indices", []),
-                        "hot_sectors": summary.get("hot_sectors", []),
-                        "hot_news": summary.get("hot_news", [])
-                    }
-                    with st.expander("📊 查看完整数据", expanded=False):
-                        st.json(data_to_show)
+            st.divider()
+            st.subheader("🤖 AI早盘分析报告")
+            ai_report = result.get("ai_report", "")
+            if ai_report:
+                st.markdown(ai_report)
             else:
-                st.error("❌ 数据收集失败")
+                st.warning("⚠️ 暂无AI分析报告")
+
+            if summary.get("hot_sectors"):
+                st.divider()
+                st.subheader("🔥 热门板块TOP10")
+                sectors = summary.get("hot_sectors", [])
+                cols = st.columns(2)
+                for i, sector in enumerate(sectors[:10]):
+                    with cols[i % 2]:
+                        change = sector.get("change_pct", 0)
+                        color = "🔴" if change > 0 else "🟢"
+                        st.markdown(f"{color} **{sector['name']}**: {change:+.2f}%")
+
+            if summary.get("hot_news"):
+                st.divider()
+                st.subheader("📰 热点新闻")
+                news = summary.get("hot_news", [])
+                for i, n in enumerate(news[:10], 1):
+                    st.markdown(f"{i}. {n.get('title', '')}")
+
+            st.divider()
+            with st.expander("📊 查看完整数据", expanded=False):
+                st.json({
+                    "market_sentiment": summary,
+                    "indices": summary.get("indices", []),
+                    "hot_sectors": summary.get("hot_sectors", []),
+                    "hot_news": summary.get("hot_news", [])
+                })
+    else:
+        # 初始视图：展示介绍 + 分析按钮
+        st.markdown("**让用户开盘几分钟内知道：今天市场强不强、哪些板块最强、哪些股票最值得关注**")
+
+        col_info1, col_info2, col_info3 = st.columns([1, 1, 1])
+        with col_info1:
+            st.info("📊 **市场情绪** - 涨停/跌停/上涨家数")
+        with col_info2:
+            st.info("🔥 **热点板块** - 强势主题")
+        with col_info3:
+            st.info("⭐ **强势股** - 资金追捧")
+
+        st.divider()
+
+        if st.button("🚀 开始早盘分析", key="morning_analyze", type="primary"):
+            with st.spinner("📊 正在收集市场数据..."):
+                progress_bar = st.progress(0, text="准备开始...")
+                progress_bar.progress(30, text="📈 收集市场数据...")
+
+                from modules.morning_analyzer import run_morning_analysis
+                result = run_morning_analysis()
+
+                if result.get("error"):
+                    st.error(f"❌ 分析失败: {result['error']}")
+                elif result.get("data_collected"):
+                    progress_bar.progress(70, text="🤖 AI正在分析...")
+                    progress_bar.progress(100, text="✅ 分析完成！")
+                    st.balloons()
+
+                    # 保存到 session_state 并刷新进入结果视图
+                    st.session_state["morning_result"] = result
+                    st.rerun()
+                else:
+                    st.error("❌ 数据收集失败")
 
 with tab3:
     st.header("📋 看盘记录")
@@ -782,10 +558,10 @@ with tab3:
             st.session_state.refresh_history = True
 
     if st.session_state.refresh_history:
-        all_stocks = get_all_stocks()
+        all_stocks = get_all_stocks(username=get_current_username())
         st.session_state.cached_all_stocks = all_stocks
     else:
-        all_stocks = st.session_state.get('cached_all_stocks', get_all_stocks())
+        all_stocks = st.session_state.get('cached_all_stocks', get_all_stocks(username=get_current_username()))
 
     if all_stocks:
         stock_options = [f"{s['name']} ({s['code']})" for s in all_stocks]
@@ -796,7 +572,7 @@ with tab3:
         if selected:
             idx = stock_options.index(selected)
             selected_code = stock_codes[idx]
-            history = get_stock_history(selected_code)
+            history = get_stock_history(selected_code, username=get_current_username())
 
             if history:
                 st.write(f"**共找到 {len(history)} 条历史记录**")

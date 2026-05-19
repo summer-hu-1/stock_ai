@@ -137,11 +137,12 @@ def can_analyze() -> tuple:
     Returns:
         (can_do: bool, message: str)
     """
-    # 游客模式逻辑
+    # 游客模式逻辑：限制5次
     if not is_logged_in():
-        # 游客默认限制，可以根据需要调整
-        # 这里允许游客分析，但不记录到特定用户
-        return True, "游客模式（可以分析）"
+        guest_used = st.session_state.get("guest_used", 0)
+        if guest_used >= 5:
+            return False, "游客模式最多使用5次，请登录后继续使用"
+        return True, f"游客模式（剩余 {5 - guest_used} 次）"
     
     user = st.session_state["user"]
     
