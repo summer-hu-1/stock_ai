@@ -272,15 +272,18 @@ with tab2:
                     market_mood = sentiment_data.get('market_mood', '未知')
                     data_source = sentiment_data.get('data_source', 'unknown')
                     source_label = {
-                        "akshare": "📊 真实市场数据 (akshare)",
-                        "eastmoney": "📊 真实市场数据 (东方财富)",
-                        "xueqiu": "📊 估算数据 (雪球，仅供参考)",
+                        "akshare": "📊 真实市场数据 (akshare/东方财富)",
+                        "sina": "📊 真实市场数据 (新浪/腾讯)",
+                        "eastmoney": "📊 真实市场数据 (东方财富直连)",
+                        "xueqiu": "⚠️ 估算数据 (雪球指数推算，仅供参考)",
                         "cache": "📦 缓存数据",
-                        "mock": "⚠️ 模拟数据 (API全部失败)",
+                        "mock": "⚠️ 模拟数据 (所有API不可用)",
                         "unknown": "未知来源"
                     }
                     st.markdown(f"**当前市场情绪**: <span style='color:{mood_color.get(market_mood, '#ffffff')}; font-size:18px;'>{mood_emoji.get(market_mood, '❓')} {market_mood}</span>", unsafe_allow_html=True)
-                    st.caption(f"数据来源: {source_label.get(data_source, '未知')}")
+                    fetch_time = sentiment_data.get('fetched_at', '')
+                    source_text = source_label.get(data_source, '未知')
+                    st.caption(f"数据来源: {source_text}" + (f" | 获取时间: {fetch_time}" if fetch_time else ""))
                     
                     with st.expander("📊 市场情绪详细数据", expanded=False):
                         st.json(sentiment_data)
@@ -331,15 +334,18 @@ with tab2:
                     market_mood = sentiment_data.get('market_mood', '未知')
                     data_source = sentiment_data.get('data_source', 'unknown')
                     source_label = {
-                        "akshare": "📊 真实市场数据 (akshare)",
-                        "eastmoney": "📊 真实市场数据 (东方财富)",
-                        "xueqiu": "📊 估算数据 (雪球，仅供参考)",
+                        "akshare": "📊 真实市场数据 (akshare/东方财富)",
+                        "sina": "📊 真实市场数据 (新浪/腾讯)",
+                        "eastmoney": "📊 真实市场数据 (东方财富直连)",
+                        "xueqiu": "⚠️ 估算数据 (雪球指数推算，仅供参考)",
                         "cache": "📦 缓存数据",
-                        "mock": "⚠️ 模拟数据 (API全部失败)",
+                        "mock": "⚠️ 模拟数据 (所有API不可用)",
                         "unknown": "未知来源"
                     }
                     st.markdown(f"**当前市场情绪**: <span style='color:{mood_color.get(market_mood, '#ffffff')}; font-size:18px;'>{mood_emoji.get(market_mood, '❓')} {market_mood}</span>", unsafe_allow_html=True)
-                    st.caption(f"数据来源: {source_label.get(data_source, '未知')}")
+                    fetch_time = sentiment_data.get('fetched_at', '')
+                    source_text = source_label.get(data_source, '未知')
+                    st.caption(f"数据来源: {source_text}" + (f" | 获取时间: {fetch_time}" if fetch_time else ""))
                     
                     with st.expander("📊 市场情绪详细数据", expanded=False):
                         st.json(sentiment_data)
@@ -603,255 +609,269 @@ with tab3:
             st.info("暂无历史记录，先在「单Prompt分析」或「多Agent分析」tab中分析股票吧！")
 
 with tab4:
-    st.header("📊 市场情绪")
-    from core.market_memory import MarketMemory
+    st.header("🧠 市场情绪引擎")
 
-    @st.cache_data(ttl=300)
-    def cached_get_sentiment_history():
-        return get_market_sentiment_history()
+    # ================================================================
+    # SECTION 0：数据采集 + 一键分析
+    # ================================================================
+    if "market_emotion_result" not in st.session_state:
+        st.session_state["market_emotion_result"] = None
 
-    col_refresh, col_save, col_snapshot = st.columns([1, 1, 1])
+    col_refresh, col_analyze, col_ai = st.columns([1, 1.5, 1])
     with col_refresh:
-        if st.button("🔄 刷新情绪数据"):
+        if st.button("🔄 重新采集数据", key="refresh_emotion"):
+            st.session_state["market_emotion_result"] = None
             st.rerun()
+    with col_analyze:
+        if st.button("⚡ 一键情绪分析", key="run_emotion_engine", type="primary"):
+            with st.spinner("📊 正在采集全市场数据+量化分析..."):
+                from modules.market_engine import run_market_emotion_analysis
+                st.session_state["market_emotion_result"] = run_market_emotion_analysis()
+            st.rerun()
+    with col_ai:
+        ai_placeholder = st.empty()
 
-    with col_save:
-        if st.button("💾 保存当前情绪"):
-            sentiment = get_market_sentiment(use_cache=False)
-            save_market_sentiment(sentiment)
-            st.success("✅ 情绪数据已保存")
-
-    with col_snapshot:
-        if st.button("📸 生成市场快照"):
-            sentiment = get_market_sentiment(use_cache=False)
-            memory = MarketMemory()
-            success = memory.save_snapshot(sentiment)
-            if success:
-                st.success("✅ 市场快照已保存")
-            else:
-                st.error("❌ 市场快照保存失败")
-
-    with st.spinner("📊 获取市场情绪数据..."):
-        sentiment = get_market_sentiment(use_cache=False)
-
-    st.subheader("📊 当前市场情绪")
-
-    cols = st.columns(3)
-    with cols[0]:
-        st.metric("涨停家数", sentiment['limit_up_count'])
-        st.metric("跌停家数", sentiment['limit_down_count'])
-    with cols[1]:
-        st.metric("上涨家数", f"{sentiment['rising_count']} ({sentiment['rise_ratio']}%)")
-        st.metric("市场平均涨跌", f"{sentiment['avg_change']}%")
-    with cols[2]:
-        st.metric("强势股", sentiment['strong_count'])
-        st.metric("弱势股", sentiment['weak_count'])
-
-    st.info(f"**情绪周期：{sentiment.get('emotion_cycle', '未知')}** | **市场情绪：{sentiment['market_mood']}** | **操作信号：{'可以做短线' if sentiment.get('做多信号') else '观望' if sentiment.get('做多信号') is False else '观察'}**")
-    
-    data_source = sentiment.get('data_source', 'unknown')
-    source_label = {
-        "akshare": "📊 真实市场数据 (akshare)",
-        "eastmoney": "📊 真实市场数据 (东方财富)",
-        "xueqiu": "📊 估算数据 (雪球，仅供参考)",
-        "cache": "📦 缓存数据",
-        "mock": "⚠️ 模拟数据 (API全部失败)",
-        "unknown": "未知来源"
-    }
-    st.caption(f"数据来源: {source_label.get(data_source, '未知')}")
-
-    sentiment_history = cached_get_sentiment_history()
-
-    if sentiment_history:
-        st.subheader("📅 历史情绪记录")
-
-        for record in sentiment_history:
-            mood_emoji = {
-                "高潮": "🔥",
-                "强势": "📈",
-                "震荡": "⚡",
-                "偏弱": "📊",
-                "退潮": "📉"
-            }.get(record['market_mood'], "❓")
-
-            with st.expander(f"{mood_emoji} {record['date']} - 情绪：{record['market_mood']}"):
-                cols = st.columns(3)
-                with cols[0]:
-                    st.metric("涨停", record['limit_up_count'])
-                    st.metric("跌停", record['limit_down_count'])
-                with cols[1]:
-                    st.metric("上涨", f"{record['rising_count']} ({record['rise_ratio']:.1f}%)")
-                    st.metric("平均涨跌", f"{record['avg_change']}%")
-                with cols[2]:
-                    st.metric("强势股", record['strong_count'])
-                    st.metric("弱势股", record['weak_count'])
-
-    st.divider()
-    st.subheader("🧠 市场记忆 - 历史趋势分析")
-
-    memory = MarketMemory()
-    context = memory.get_market_context(days=5)
-
-    if context.get("has_context"):
-        col_cycle, col_emotion = st.columns(2)
-        with col_cycle:
-            st.info(f"**📊 市场周期**：{context['market_cycle']['cycle']}（{context['market_cycle']['stage']}）")
-            st.caption(context['market_cycle']['description'])
-
-        with col_emotion:
-            trend_emoji = {
-                "上升": "📈",
-                "下降": "📉",
-                "震荡": "⚡"
-            }.get(context['emotion_trend']['direction'], "❓")
-            st.info(f"**{trend_emoji} 情绪趋势**：{context['emotion_trend']['direction']}")
-            st.caption(context['emotion_trend']['description'])
-
-        col_sector, col_leader = st.columns(2)
-        with col_sector:
-            st.info(f"**🔄 板块轮动**")
-            st.caption(context['sector_rotation']['description'])
-
-        with col_leader:
-            st.info(f"**🐉 龙头切换**")
-            st.caption(context['leader_rotation']['description'])
-
-        col_risk = st.columns(1)
-        with col_risk[0]:
-            risk_emoji = {
-                "上升": "⚠️",
-                "下降": "✅",
-                "稳定": "➖"
-            }.get(context['risk_change']['trend'], "❓")
-            st.info(f"**{risk_emoji} 风险变化**：{context['risk_change']['trend']}")
-            st.caption(context['risk_change']['description'])
+    if st.session_state["market_emotion_result"] is None:
+        # 初始视图
+        st.info("👆 点击「一键情绪分析」开始采集全市场数据并进行量化分析")
+        st.markdown("""
+        **分析内容：**
+        - 📊 情绪周期量化判定（冰点期→试错期→发酵期→主升期→高潮期→分歧期→退潮期→修复期）
+        - ⚠️ 6大危险信号自动检测
+        - 🔭 明日3个固定观测点生成
+        - 🤖 AI每日市场剧本（结构化JSON）
+        """)
+    else:
+        # ================================================================
+        # 数据已加载，渲染分析结果
+        # ================================================================
+        R = st.session_state["market_emotion_result"]
+        sentiment = R["sentiment"]
+        
+        # 数据来源
+        source_label = {
+            "akshare": "📡 AkShare 全市场实时数据",
+            "eastmoney": "📡 东方财富 实时API",
+            "sina": "📡 新浪财经 实时数据",
+            "xueqiu": "⚠️ 雪球 估算数据",
+        }.get(R["data_source"], R["data_source"])
+        st.caption(f"📡 数据来源：{source_label}  |  情绪周期：**{R['cycle']}**（{R['trend']}）")
 
         st.divider()
-        st.subheader("📈 趋势图表")
 
-        snapshots = memory.get_recent_snapshots(10)
-        if len(snapshots) >= 2:
-            import pandas as pd
+        # ================================================================
+        # SECTION 1：核心指标仪表盘
+        # ================================================================
+        st.subheader("📊 核心情绪指标")
 
-            dates = [s.date for s in reversed(snapshots)]
-            emotion_scores = [s.emotion_score for s in reversed(snapshots)]
-            limit_ups = [s.limit_up_count for s in reversed(snapshots)]
+        cols = st.columns(6)
+        with cols[0]:
+            st.metric("涨停家数", sentiment.get("limit_up_count", 0))
+        with cols[1]:
+            st.metric("跌停家数", sentiment.get("limit_down_count", 0))
+        with cols[2]:
+            st.metric("炸板率", f"{sentiment.get('bomb_rate', 0):.1%}")
+        with cols[3]:
+            st.metric("连板高度", f"{sentiment.get('连板高度', 0)}板")
+        with cols[4]:
+            st.metric("昨日涨停溢价", f"{sentiment.get('昨日涨停溢价', 0):.1f}%")
+        with cols[5]:
+            st.metric("平均涨跌", f"{sentiment.get('avg_change', 0):.2f}%")
 
-            chart_df = pd.DataFrame({
-                "日期": dates,
-                "情绪得分": emotion_scores,
-                "涨停家数": limit_ups
-            })
+        cols2 = st.columns(4)
+        with cols2[0]:
+            st.metric("上涨家数", sentiment.get("rising_count", 0))
+        with cols2[1]:
+            st.metric("下跌家数", sentiment.get("falling_count", 0))
+        with cols2[2]:
+            st.metric("强势股(≥5%)", sentiment.get("strong_count", 0))
+        with cols2[3]:
+            st.metric("弱势股(≤-5%)", sentiment.get("weak_count", 0))
 
-            col_chart1, col_chart2 = st.columns(2)
-            with col_chart1:
-                st.line_chart(chart_df.set_index("日期")[["情绪得分"]])
+        # ================================================================
+        # SECTION 2：情绪周期量化判定（执行项2）
+        # ================================================================
+        st.divider()
+        st.subheader("📈 情绪周期量化判定")
 
-            with col_chart2:
-                st.line_chart(chart_df.set_index("日期")[["涨停家数"]])
+        cycle_emoji = {
+            "冰点期": "🧊", "试错期": "🔍", "发酵期": "🌱", "主升期": "🚀",
+            "高潮期": "🔥", "分歧期": "⚡", "退潮期": "📉", "修复期": "🩹"
+        }
+        trend_emoji = {"加速": "⬆️", "逐步强化": "↗️", "尝试修复": "↘️", 
+                       "待观察": "⏸️", "转退潮": "⬇️", "转修复": "↗️", 
+                       "延续": "➡️", "向上": "↗️", "震荡": "↔️", "即将分歧": "⚠️"}
+
+        col_cycle, col_trend, col_status = st.columns(3)
+        with col_cycle:
+            emoji = cycle_emoji.get(R["cycle"], "❓")
+            st.metric(f"{emoji} 当前周期", R["cycle"])
+        with col_trend:
+            emoji = trend_emoji.get(R["trend"], "➡️")
+            st.metric(f"{emoji} 趋势方向", R["trend"])
+        with col_status:
+            action_map = {
+                "冰点期": "空仓观望", "试错期": "轻仓试错", "发酵期": "逐步加仓",
+                "主升期": "重仓出击", "高潮期": "逐步减仓", "分歧期": "减仓防守",
+                "退潮期": "空仓逃跑", "修复期": "轻仓参与"
+            }
+            st.metric("🎯 建议策略", action_map.get(R["cycle"], "观望"))
+
+        # 量化判定说明
+        with st.expander("🔍 判定逻辑详情"):
+            st.markdown(f"""
+            **输入参数：**
+            - 涨停数 = {sentiment.get('limit_up_count', 0)} | 跌停数 = {sentiment.get('limit_down_count', 0)}
+            - 连板高度 = {sentiment.get('连板高度', 0)}板 | 昨日涨停溢价 = {sentiment.get('昨日涨停溢价', 0)}%
+            - 炸板率 = {sentiment.get('bomb_rate', 0):.1%}
+            
+            **判定规则（自上而下匹配）：**
+            1. 连板高度≤2 且 涨停<30 且 溢价<0 → 冰点期
+            2. 3≤连板≤4 且 涨停≥40 且 跌停<10 → 试错期
+            3. 连板≥5 且 涨停≥60 且 炸板率<0.3 → 发酵期
+            4. 连板≥7 且 涨停≥80 且 炸板率<0.25 → 主升期
+            5. 连板≥6 且 炸板率>0.4 且 溢价<2 → 高潮期（即将分歧）
+            6. 炸板率>0.4 且 跌停>15 且 溢价<1 → 分歧期
+            7. 连板≤3 且 跌停>20 → 退潮期
+            8. 溢价>3 且 跌停<10 且 连板≤4 → 修复期
+            """)
+
+        # ================================================================
+        # SECTION 3：危险信号检测（执行项3）
+        # ================================================================
+        st.divider()
+        st.subheader("⚠️ 危险信号检测")
+
+        danger_signals = R.get("danger_signals", [])
+        if danger_signals:
+            for signal in danger_signals:
+                sev = signal["严重程度"]
+                sev_color = {"高": "red", "中": "orange", "低": "gray"}.get(sev, "gray")
+                sev_emoji = {"高": "🔴", "中": "🟡", "低": "🟢"}.get(sev, "⚪")
+                
+                cols_danger = st.columns([5, 1, 3])
+                with cols_danger[0]:
+                    st.markdown(f"**{sev_emoji} {signal['信号']}**")
+                with cols_danger[1]:
+                    st.markdown(f"<span style='color:{sev_color};font-weight:bold;'>{sev}</span>", unsafe_allow_html=True)
+                with cols_danger[2]:
+                    st.caption(signal.get("数值或个股", ""))
         else:
-            st.info("📊 历史数据不足，需要至少2天的市场快照才能生成趋势图表")
+            st.success("✅ 当前未触发危险信号，情绪健康")
 
-    st.divider()
-    st.subheader("🤖 AI市场洞察")
+        # 危险信号规则说明
+        with st.expander("🔍 检测规则"):
+            st.markdown("""
+            | 信号 | 触发条件 |
+            |------|----------|
+            | 高位股炸板 | 昨日最高连板股今日未封板且盘中最高涨幅<5% |
+            | 中位股A杀 | 前日3连板以上个股，今日跌停≥2只 |
+            | 板块成交过热 | 最大板块成交额 / 全市场 > 35% |
+            | 炸板率飙升 | 炸板率 > 45% |
+            | 核按钮重现 | 跌停家数 > 25（异常） |
+            | 高位放量滞涨 | 成交前10中 ≥ 3只涨幅<2%且换手>15% |
+            """)
 
-    col_insight_days, col_generate = st.columns([1, 1])
-    with col_insight_days:
-        insight_days = st.selectbox("分析天数", options=[3, 5, 7, 10], index=1, key="insight_days")
-    with col_generate:
-        if st.button("🧠 生成AI洞察", key="generate_insight"):
-            with st.spinner("🤖 AI正在分析市场..."):
-                insight = memory.generate_market_insight(days=insight_days)
-                memory.save_insight(insight)
-                st.success("✅ AI洞察已生成并保存")
+        # ================================================================
+        # SECTION 4：明日观测点（执行项4）
+        # ================================================================
+        st.divider()
+        st.subheader("🔭 明日观测点")
+
+        obs_points = R.get("observation_points", [])
+        for i, obs in enumerate(obs_points, 1):
+            with st.expander(f"观测点 {i}：{obs['观测内容']}", expanded=(i == 1)):
+                cols_obs = st.columns(2)
+                with cols_obs[0]:
+                    st.markdown("**判定标准**")
+                    st.info(obs["判定标准"])
+                with cols_obs[1]:
+                    col_yes, col_no = st.columns(2)
+                    with col_yes:
+                        st.markdown("✅ **如果成立**")
+                        st.success(obs["如果成立"])
+                    with col_no:
+                        st.markdown("❌ **如果不成立**")
+                        st.warning(obs["如果不成立"])
+
+        # ================================================================
+        # SECTION 5：AI 每日市场剧本（执行项1）
+        # ================================================================
+        st.divider()
+        st.subheader("🤖 AI 每日市场剧本")
+
+        col_prompt_info, col_generate = st.columns([3, 1])
+        with col_prompt_info:
+            st.caption("基于量化数据 + DeepSeek AI 生成结构化市场剧本（JSON格式）")
+        with col_generate:
+            if st.button("🧠 生成AI剧本", key="gen_script", type="primary"):
+                with st.spinner("🤖 AI 正在分析市场数据..."):
+                    from modules.market_engine import generate_ai_script
+                    script_result = generate_ai_script(R["script_prompt"])
+                    st.session_state["script_result"] = script_result
                 st.rerun()
 
-    latest_insight = memory.get_latest_insight()
-    if latest_insight:
-        col_state, col_confidence = st.columns([3, 1])
-        with col_state:
-            st.info(f"**📊 市场状态**：{latest_insight.current_state}")
-            st.caption(latest_insight.state_description)
-        with col_confidence:
-            confidence_color = "🟢" if latest_insight.confidence > 0.8 else "🟡" if latest_insight.confidence > 0.6 else "🔴"
-            st.metric(f"{confidence_color} 置信度", f"{latest_insight.confidence*100:.0f}%")
+        if "script_result" in st.session_state and st.session_state["script_result"]:
+            result_text = st.session_state["script_result"]
+            
+            try:
+                import json as json_module
+                if result_text.startswith("```"):
+                    result_text = result_text.split("```")[1]
+                    if result_text.startswith("json"):
+                        result_text = result_text[4:]
+                script_data = json_module.loads(result_text.strip())
+                
+                col_script1, col_script2 = st.columns(2)
+                with col_script1:
+                    cycle_data = script_data.get("情绪周期", {})
+                    st.info(f"**情绪周期**：{cycle_data.get('阶段', '?')}（{cycle_data.get('趋势', '?')}）")
+                    
+                    mainline = script_data.get("主线演化", {})
+                    st.info(f"**主线**：{mainline.get('主线板块', '?')} | 阶段：{mainline.get('阶段', '?')} | 龙头：{mainline.get('龙头股', '?')}")
+                
+                with col_script2:
+                    fund = script_data.get("资金状态", {})
+                    st.info(f"**资金**：风险偏好={fund.get('风险偏好', '?')} | 流向={fund.get('资金流向', '?')}")
+                
+                dangers = script_data.get("危险信号", [])
+                if dangers:
+                    with st.expander("⚠️ AI识别的危险信号"):
+                        for d in dangers:
+                            st.warning(f"**{d.get('信号', '')}** [{d.get('严重程度', '')}] — {d.get('数值或个股', '')}")
+                
+                ai_obs = script_data.get("明日观测点", [])
+                if ai_obs:
+                    with st.expander("🔭 AI生成的明日观测点"):
+                        for ob in ai_obs:
+                            st.markdown(f"- **{ob.get('观测内容', '')}**")
+                            st.caption(f"  成立→{ob.get('如果成立', '')} | 不成立→{ob.get('如果不成立', '')}")
+                
+                with st.expander("📦 完整JSON"):
+                    st.json(script_data)
+                    
+            except (json_module.JSONDecodeError, IndexError):
+                st.markdown(result_text)
+        
+        # 显示 Prompt 预览
+        with st.expander("📋 Prompt 预览"):
+            st.code(R["script_prompt"][:500] + "...", language="text")
 
-        col_trend, col_risk = st.columns(2)
-        with col_trend:
-            with st.expander("📈 趋势分析", expanded=True):
-                st.markdown(latest_insight.trend_analysis)
-
-        with col_risk:
-            with st.expander("⚠️ 风险提示", expanded=True):
-                st.warning(latest_insight.risk_alert)
-
-        col_opp, col_action = st.columns(2)
-        with col_opp:
-            with st.expander("💡 机会提示", expanded=True):
-                st.success(latest_insight.opportunity)
-
-        with col_action:
-            with st.expander("🎯 操作建议", expanded=True):
-                st.info(latest_insight.action_suggestion)
-
-        if latest_insight.key_changes:
-            with st.expander("🔑 关键观察点"):
-                for change in latest_insight.key_changes:
-                    st.markdown(f"- {change}")
-
+        # ================================================================
+        # SECTION 6：强势板块（辅助信息）
+        # ================================================================
         st.divider()
-        st.subheader("📜 历史洞察记录")
-
-        recent_insights = memory.get_recent_insights(10)
-        if recent_insights:
-            for insight in recent_insights:
-                with st.expander(f"📅 {insight.date} - {insight.current_state}"):
-                    cols = st.columns(3)
-                    with cols[0]:
-                        st.metric("市场状态", insight.current_state)
-                        st.metric("置信度", f"{insight.confidence*100:.0f}%")
-                    with cols[1]:
-                        st.caption("**风险提示**")
-                        st.warning(insight.risk_alert)
-                    with cols[2]:
-                        st.caption("**操作建议**")
-                        st.info(insight.action_suggestion)
-        else:
-            st.info("📊 暂无历史洞察记录")
-    
-    st.divider()
-    st.subheader("📥 历史快照拉取")
-    
-    col_start, col_end, col_fetch = st.columns([2, 2, 1])
-    with col_start:
-        start_date = st.date_input("开始日期", value=datetime.now() - timedelta(days=7), key="history_start")
-    with col_end:
-        end_date = st.date_input("结束日期", value=datetime.now(), key="history_end")
-    with col_fetch:
-        if st.button("🚀 拉取历史快照", key="fetch_history"):
-            if start_date > end_date:
-                st.error("❌ 开始日期不能大于结束日期")
-            else:
-                with st.spinner(f"⏳ 正在拉取 {start_date} 到 {end_date} 的快照..."):
-                    result = memory.fetch_date_range(start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d"))
-                    st.success(f"✅ 拉取完成！成功: {result['success']} | 失败: {result['failed']} | 跳过: {result['skipped']}")
-    
-    col_update_days, col_update = st.columns([2, 1])
-    with col_update_days:
-        update_days = st.selectbox("增量更新最近N天", options=[7, 14, 30, 60], index=2, key="update_days")
-    with col_update:
-        if st.button("🔄 增量更新快照", key="update_snapshots"):
-            with st.spinner(f"⏳ 正在增量更新最近 {update_days} 天的快照..."):
-                result = memory.update_missing_snapshots(days=update_days)
-                st.success(f"✅ 更新完成！缺失: {result['total_missing']} | 成功: {result['success']} | 失败: {result['failed']}")
-    
-    snapshots = memory.get_recent_snapshots(365)
-    if snapshots:
-        earliest_date = snapshots[-1].date
-        latest_date = snapshots[0].date
-        st.info(f"📊 当前已有快照: {len(snapshots)} 天（{earliest_date} 至 {latest_date}）")
-    else:
-        st.info("📊 当前暂无快照数据")
+        hot_sectors = R.get("hot_sectors", [])
+        if hot_sectors:
+            st.subheader("🔥 强势板块")
+            valid_sectors = [s for s in hot_sectors if isinstance(s, dict) and 'name' in s and 'change_pct' in s]
+            if valid_sectors:
+                cols_s = st.columns(2)
+                for i, s in enumerate(valid_sectors[:8]):
+                    with cols_s[i % 2]:
+                        change = s.get("change_pct", 0)
+                        color = "🔴" if change > 0 else "🟢"
+                        st.markdown(f"{color} **{s['name']}**: {change:+.2f}%")
 
 with tab5:
     st.header("📈 行情数据")

@@ -13,7 +13,7 @@ _sentiment_cache_ttl = 300
 
 def _get_market_sentiment_from_akshare():
     """
-    从akshare获取市场情绪数据
+    从akshare获取市场情绪数据（东方财富数据源）
     """
     try:
         import akshare as ak
@@ -85,6 +85,87 @@ def _get_market_sentiment_from_akshare():
         ])
         if is_network_error:
             return None, f"网络连接错误: {error_str[:50]}"
+        return None, str(e)
+
+
+def _get_market_sentiment_from_akshare_sina():
+    """
+    从akshare获取市场情绪数据（新浪数据源，当东方财富不可用时使用）
+    ak.stock_zh_a_spot() 使用新浪/腾讯数据源，数据量大但更可靠
+    """
+    try:
+        import akshare as ak
+        df = ak.stock_zh_a_spot()
+        if df is None or df.empty:
+            return None, "新浪数据源返回空数据"
+
+        # 确保涨跌幅列是数值类型
+        df["涨跌幅"] = pd.to_numeric(df["涨跌幅"], errors="coerce")
+        df = df.dropna(subset=["涨跌幅"])
+
+        limit_up = df[df["涨跌幅"] >= 9.8]
+        limit_up_count = len(limit_up)
+
+        limit_down = df[df["涨跌幅"] <= -9.8]
+        limit_down_count = len(limit_down)
+
+        avg_change = df["涨跌幅"].mean()
+        rising_count = len(df[df["涨跌幅"] > 0])
+        falling_count = len(df[df["涨跌幅"] < 0])
+        flat_count = len(df[df["涨跌幅"] == 0])
+        total_count = len(df)
+
+        rise_ratio = rising_count / total_count * 100 if total_count > 0 else 0
+
+        strong_stocks = df[df["涨跌幅"] >= 5]
+        strong_count = len(strong_stocks)
+
+        weak_stocks = df[df["涨跌幅"] <= -5]
+        weak_count = len(weak_stocks)
+
+        # 炸板率估算（无成交额数据时的替代方案）
+        bomb_rate = 0.0
+
+        if limit_up_count > 80:
+            mood = "高潮"
+        elif limit_up_count > 50:
+            mood = "强势"
+        elif limit_up_count > 30:
+            mood = "震荡"
+        else:
+            mood = "退潮"
+
+        # 成交量和市值（新浪数据源可能没有这些列）
+        total_volume = float(df["成交额"].sum()) if "成交额" in df.columns else 0.0
+        market_cap_total = float(df["总市值"].sum()) if "总市值" in df.columns else 0.0
+
+        return {
+            "limit_up_count": limit_up_count,
+            "limit_down_count": limit_down_count,
+            "bomb_rate": round(bomb_rate, 2),
+            "avg_change": round(avg_change, 2),
+            "market_mood": mood,
+            "rising_count": rising_count,
+            "falling_count": falling_count,
+            "flat_count": flat_count,
+            "total_count": total_count,
+            "rise_ratio": round(rise_ratio, 2),
+            "strong_count": strong_count,
+            "weak_count": weak_count,
+            "total_volume": round(total_volume / 1e12, 2) if total_volume else 0.0,
+            "market_cap": round(market_cap_total / 1e12, 2) if market_cap_total else 0.0
+        }, None
+    except Exception as e:
+        error_str = str(e)
+        is_network_error = any([
+            "ProxyError" in error_str,
+            "Max retries exceeded" in error_str,
+            "Connection aborted" in error_str,
+            "RemoteDisconnected" in error_str,
+            isinstance(e, requests.exceptions.ConnectionError)
+        ])
+        if is_network_error:
+            return None, f"新浪数据源网络错误: {error_str[:50]}"
         return None, str(e)
 
 def _get_market_sentiment_from_eastmoney():
@@ -267,6 +348,14 @@ def get_market_sentiment(use_cache=True):
     """
     获取A股全市场情绪数据
     use_cache: 是否优先使用缓存数据
+
+    数据降级策略:
+    1. akshare (东方财富) → 最快，数据最全
+    2. akshare (新浪)    → 较慢(~20s)，但网络更稳定
+    3. 东方财富直连       → 备用
+    4. 雪球指数估算       → 仅指数数据，估算涨跌停
+    5. 缓存数据          → 之前成功获取的数据
+    6. 模拟数据          → 所有API都失败时兜底
     """
     global _sentiment_cache, _sentiment_cache_time
 
@@ -282,48 +371,55 @@ def get_market_sentiment(use_cache=True):
         _sentiment_cache_time = time.time()
         return cached
 
-    # 尝试akshare主数据源
+    # 数据源1: akshare（东方财富）
     print("正在获取市场情绪数据...")
     result, error = _get_market_sentiment_from_akshare()
     data_source = "akshare"
 
     if result is None:
-        print(f"⚠️ akshare市场情绪获取失败: {error}，尝试东方财富备用接口...")
-        data_source = "eastmoney"
+        print(f"⚠️ akshare（东方财富）获取失败: {error}，尝试新浪数据源...")
+        data_source = "sina"
 
-        # 尝试东方财富备用数据源
-        result, error = _get_market_sentiment_from_eastmoney()
+        # 数据源2: akshare（新浪）
+        result, error = _get_market_sentiment_from_akshare_sina()
 
         if result is None:
-            print(f"⚠️ 东方财富备用接口也失败: {error}，尝试雪球API...")
-            data_source = "xueqiu"
+            print(f"⚠️ akshare（新浪）获取失败: {error}，尝试东方财富直连...")
+            data_source = "eastmoney"
 
-            # 尝试雪球API
-            result, error = _get_market_sentiment_from_xueqiu()
+            # 数据源3: 东方财富直连
+            result, error = _get_market_sentiment_from_eastmoney()
 
             if result is None:
-                print(f"⚠️ 雪球API也失败: {error}")
-                data_source = "cache"
+                print(f"⚠️ 东方财富直连也失败: {error}，尝试雪球API...")
+                data_source = "xueqiu"
 
-                # 返回缓存数据
-                if _sentiment_cache is not None:
-                    print("📦 API失败，返回内存缓存数据")
-                    result = _sentiment_cache
-                elif cached:
-                    print("📦 API失败，返回数据库缓存数据")
-                    result = cached
-                else:
-                    # 无法获取任何数据，使用模拟数据
-                    print("⚠️ 所有API和缓存都失败，使用模拟市场情绪数据")
-                    result = _get_mock_market_sentiment()
-                    data_source = "mock"
-                    print("📦 返回模拟数据，请注意这不是真实市场数据")
+                # 数据源4: 雪球指数估算
+                result, error = _get_market_sentiment_from_xueqiu()
+
+                if result is None:
+                    print(f"⚠️ 雪球API也失败: {error}")
+                    data_source = "cache"
+
+                    # 数据源5: 缓存数据
+                    if _sentiment_cache is not None:
+                        print("📦 API全部失败，返回内存缓存数据")
+                        result = _sentiment_cache
+                    elif cached:
+                        print("📦 API全部失败，返回数据库缓存数据")
+                        result = cached
+                    else:
+                        # 数据源6: 模拟数据兜底
+                        print("⚠️ 所有API和缓存都失败，使用模拟市场情绪数据")
+                        result = _get_mock_market_sentiment()
+                        data_source = "mock"
 
     result["data_source"] = data_source
+    result["fetched_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
     save_market_sentiment(result)
     _sentiment_cache = result
     _sentiment_cache_time = time.time()
-    print(f"✅ 市场情绪数据已获取并保存 (数据源: {data_source})")
+    print(f"✅ 市场情绪数据获取完成 (数据源: {data_source})")
     return result
 
 def get_sector_data():
