@@ -13,13 +13,15 @@ class AdminRepository:
     """管理员数据访问类"""
 
     @staticmethod
-    def create_user(db: Session, username: str, password_hash: str, email: str = None, name: str = None, role: str = "member") -> AdminUser:
-        """创建用户"""
+    def create_user(db: Session, username: str, password_hash: str, email: str, name: str = None, role: str = "member") -> AdminUser:
+        """创建用户（email 为必填）"""
+        if not email:
+            raise ValueError("邮箱不能为空")
         user = AdminUser(
-            username=username,
+            username=username or email,  # username 降级为兼容字段
             password_hash=password_hash,
             email=email,
-            name=name,
+            name=name or email.split('@')[0],
             role=role,
             membership="free",
             daily_limit=3,

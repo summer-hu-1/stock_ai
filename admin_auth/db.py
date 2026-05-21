@@ -17,9 +17,9 @@ class AdminUser(Base):
     __tablename__ = "admin_users"
 
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True, nullable=False)
+    username = Column(String, unique=True, index=True, nullable=True)   # 保留兼容，但不再作为主要登录凭据
     password_hash = Column(String, nullable=False)
-    email = Column(String, unique=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)     # 邮箱是核心身份标识
     name = Column(String)
     role = Column(String, default="member")
     membership = Column(String, default="free")
@@ -87,6 +87,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 def init_db():
     """初始化数据库"""
     Base.metadata.create_all(bind=engine)
+    _migrate_email_column()
 
 
 def get_db() -> Session:
@@ -101,3 +102,32 @@ def get_db() -> Session:
 def get_session():
     """获取数据库会话（直接返回，非生成器）"""
     return SessionLocal()
+
+
+def _migrate_email_column():
+    """
+    迁移：确保所有用户都有邮箱。
+    对于旧数据库中 email 为空的用户，自动生成一个基于用户名的邮箱。
+    """
+    db = SessionLocal()
+    try:
+        # 检查是否有 email 为空的用户
+        from sqlalchemy import text
+        users_without_email = db.query(AdminUser).filter(
+            (AdminUser.email == None) | (AdminUser.email == '')
+        ).all()
+        
+        for user in users_without_email:
+            # 自动生成邮箱
+            generated_email = f"{user.username}@stockai.local"
+            user.email = generated_email
+            print(f"📧 迁移: 用户 {user.username} 的邮箱已设置为 {generated_email}")
+        
+        if users_without_email:
+            db.commit()
+            print(f"✅ 邮箱迁移完成，共处理 {len(users_without_email)} 个用户")
+    except Exception as e:
+        print(f"⚠️ 邮箱迁移跳过: {e}")
+        db.rollback()
+    finally:
+        db.close()

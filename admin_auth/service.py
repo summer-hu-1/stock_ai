@@ -25,22 +25,24 @@ class AdminService:
         return checkpw(password.encode('utf-8'), password_hash.encode('utf-8'))
 
     @staticmethod
-    def register_user(username: str, password: str, email: str = None, name: str = None) -> tuple:
+    def register_user(email: str, password: str, name: str = None) -> tuple:
         """
-        注册用户
+        注册用户（邮箱为核心身份标识）
 
         Returns:
             (success: bool, message: str)
         """
         db = get_session()
+        
+        # 验证邮箱格式
+        if not email or '@' not in email or '.' not in email.split('@')[-1]:
+            return False, "请输入有效的邮箱地址"
 
-        if AdminRepository.get_user_by_username(db, username):
-            return False, "用户名已存在"
-
-        if email and AdminRepository.get_user_by_email(db, email):
-            return False, "邮箱已被注册"
+        if AdminRepository.get_user_by_email(db, email):
+            return False, "该邮箱已被注册"
 
         password_hash = AdminService.hash_password(password)
+        username = name or email.split('@')[0]
         try:
             AdminRepository.create_user(db, username, password_hash, email, name)
             AdminRepository.add_log(db, username, "register")
@@ -51,27 +53,27 @@ class AdminService:
             db.close()
 
     @staticmethod
-    def login_user(username: str, password: str) -> tuple:
+    def login_user(email: str, password: str) -> tuple:
         """
-        登录用户
+        登录用户（使用邮箱）
 
         Returns:
             (success: bool, message: str, user_dict: dict or None)
         """
         db = get_session()
 
-        user = AdminRepository.get_user_by_username(db, username)
+        user = AdminRepository.get_user_by_email(db, email)
 
         if not user:
-            return False, "用户名不存在", None
+            return False, "邮箱未注册", None
 
         if not user.is_active:
-            return False, "用户已被封禁", None
+            return False, "账户已被封禁", None
 
         if not AdminService.verify_password(password, user.password_hash):
             return False, "密码错误", None
 
-        AdminRepository.update_user_last_login(db, username)
+        AdminRepository.update_user_last_login(db, user.username)
 
         user_dict = {
             "id": user.id,
@@ -89,7 +91,7 @@ class AdminService:
             "last_login": user.last_login.strftime("%Y-%m-%d %H:%M") if user.last_login else None
         }
 
-        AdminRepository.add_log(db, username, "login")
+        AdminRepository.add_log(db, user.username, "login")
         db.close()
 
         return True, "登录成功", user_dict

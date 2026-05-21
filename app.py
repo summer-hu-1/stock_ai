@@ -423,13 +423,12 @@ with tab1:
         if summary:
             data_source = summary.get("data_source", "unknown")
             source_label = {
-                "akshare": "📊 真实市场数据",
-                "eastmoney": "📊 真实市场数据",
-                "xueqiu": "📊 估算数据",
-                "cache": "📦 缓存数据",
-                "mock": "⚠️ 模拟数据",
-                "unknown": "❓ 未知数据"
-            }.get(data_source, "❓ 未知数据")
+                "akshare": "📡 AkShare 实时全市场数据",
+                "eastmoney": "📡 东方财富 实时行情数据",
+                "sina": "📡 新浪财经 指数数据",
+                "xueqiu": "⚠️ 雪球 估算数据（仅供参考）",
+                "unknown": "❓ 未知数据源"
+            }.get(data_source, "❓ 未知数据源")
             st.info(f"数据来源: {source_label}")
 
             col1, col2, col3, col4, col5, col6 = st.columns(6)

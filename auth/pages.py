@@ -1,10 +1,10 @@
 """
 登录页面组件 - Login Page Components
-提供登录和注册界面
+提供登录和注册界面（邮箱为核心身份标识）
 """
 
 import streamlit as st
-from auth.auth import login_user, register_user, set_session_user
+from auth.auth import login_user, register_user, set_session_user, is_valid_email
 
 
 def show_login_page():
@@ -34,7 +34,7 @@ def show_login_page():
         st.header("🔐 用户登录")
         
         with st.form("login_form"):
-            username = st.text_input("用户名", placeholder="请输入用户名")
+            email = st.text_input("邮箱", placeholder="请输入邮箱地址")
             password = st.text_input("密码", type="password", placeholder="请输入密码")
             
             col1, col2 = st.columns([1, 1])
@@ -46,11 +46,13 @@ def show_login_page():
             submitted = st.form_submit_button("登录", use_container_width=True)
             
             if submitted:
-                if not username or not password:
-                    st.error("请填写用户名和密码")
+                if not email or not password:
+                    st.error("请填写邮箱和密码")
+                elif not is_valid_email(email):
+                    st.error("请输入有效的邮箱地址")
                 else:
                     with st.spinner("正在验证..."):
-                        success, message, user = login_user(username, password)
+                        success, message, user = login_user(email, password)
                         
                         if success:
                             set_session_user(user)
@@ -63,22 +65,25 @@ def show_login_page():
         st.header("📝 用户注册")
         
         with st.form("register_form"):
-            username = st.text_input("用户名", placeholder="请输入用户名")
-            email = st.text_input("邮箱", placeholder="请输入邮箱（可选）")
-            name = st.text_input("姓名", placeholder="请输入姓名（可选）")
-            password = st.text_input("密码", type="password", placeholder="请输入密码")
+            email = st.text_input("邮箱 *", placeholder="请输入邮箱地址")
+            name = st.text_input("昵称", placeholder="请输入昵称（可选）")
+            password = st.text_input("密码", type="password", placeholder="至少6个字符")
             confirm_password = st.text_input("确认密码", type="password", placeholder="请再次输入密码")
             
             submitted = st.form_submit_button("注册", use_container_width=True)
             
             if submitted:
-                if not username or not password:
-                    st.error("请填写用户名和密码")
+                if not email or not password:
+                    st.error("请填写邮箱和密码")
+                elif not is_valid_email(email):
+                    st.error("请输入有效的邮箱地址")
+                elif len(password) < 6:
+                    st.error("密码至少需要6个字符")
                 elif password != confirm_password:
                     st.error("两次输入的密码不一致")
                 else:
                     with st.spinner("正在注册..."):
-                        success, message = register_user(username, password, email, name)
+                        success, message = register_user(email, password, name)
                         
                         if success:
                             st.success(message)
@@ -100,9 +105,9 @@ def show_user_info():
             with col1:
                 st.write("👤")
             with col2:
-                st.write(f"**用户名**: {user['username']}")
-                if user['name']:
-                    st.write(f"**姓名**: {user['name']}")
+                st.write(f"**邮箱**: {user.get('email', user['username'])}")
+                if user.get('name'):
+                    st.write(f"**昵称**: {user['name']}")
             
             # 会员等级标签
             membership_color = {
@@ -133,7 +138,7 @@ def show_user_info():
                 st.write(f"**今日分析**: {user['today_used']} / {user['daily_limit']} 次")
             
             # 登录时间
-            if user['last_login']:
+            if user.get('last_login'):
                 st.write(f"**上次登录**: {user['last_login']}")
             
             # 退出按钮
