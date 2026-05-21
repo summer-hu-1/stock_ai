@@ -238,8 +238,8 @@ def run_market_emotion_analysis() -> Dict:
     from modules.market_sentiment import get_market_sentiment, get_hot_sectors
     
     # 1. 采集数据
-    sentiment = get_market_sentiment(use_cache=False)
-    hot_sectors = get_hot_sectors(use_cache=False) or []
+    sentiment = get_market_sentiment(use_cache=True)
+    hot_sectors = get_hot_sectors(use_cache=True) or []
     
     # 2. 提取核心指标
     涨停数 = sentiment.get("limit_up_count", 0)
