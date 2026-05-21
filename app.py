@@ -1,7 +1,9 @@
 import streamlit as st
 import sys
 import os
+import re
 from datetime import datetime, timedelta
+from collections import Counter
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -63,21 +65,19 @@ def get_company_list():
 
 def _render_short_term_card(stock_code, stock_data):
     """
-    渲染短线状态卡片：
+    短线状态卡片 — 纯 Streamlit 原生渲染，清晰可读
     1. 从本地 CSV 日线数据加载最近5日走势
     2. 调用 ShortTermStateEngine 分析
-    3. 以 HTML 卡片展示状态、得分、剧本
+    3. 用 st.metric / st.columns 渲染
     """
     import os
     import pandas as pd
 
-    # 查找本地 CSV 日线文件
     data_dir = os.path.join(os.path.dirname(__file__), 'data', 'cn', 'daily')
     if not os.path.exists(data_dir):
-        st.warning("📭 暂无本地日线数据，无法生成短线状态卡片。请先在「行情数据」Tab下载。")
+        st.caption("📭 暂无本地日线数据")
         return
 
-    # 按市场目录查找
     csv_path = None
     for market_dir in os.listdir(data_dir):
         market_path = os.path.join(data_dir, market_dir)
@@ -89,109 +89,81 @@ def _render_short_term_card(stock_code, stock_data):
             break
 
     if not csv_path:
-        st.info("📭 该股票暂无本地日线数据，无法生成短线状态卡片。")
+        st.caption("📭 该股票暂无本地日线数据")
         return
 
     try:
         df = pd.read_csv(csv_path)
         if df.empty or len(df) < 3:
-            st.info("📭 日线数据不足（需至少3天），无法生成短线状态卡片。")
+            st.caption("📭 日线不足3天，无法生成状态卡片")
             return
 
         from engines.structure_engine.short_term_state import get_short_term_state, daily_from_dataframe
-
         daily_5 = daily_from_dataframe(df, n=5)
         state = get_short_term_state(daily_5)
 
         if state["state_key"] == "insufficient_data":
-            st.info(f"📭 {state['narrative']}")
+            st.caption(f"📭 {state['narrative']}")
             return
 
-        # ---- 渲染 HTML 卡片 ----
-        risk_color_map = {"low": "#4ecdc4", "medium": "#f5a623", "high": "#e74c3c"}
-        state_color = risk_color_map.get(state["risk"], "#888")
+        risk_color = {"low": "green", "medium": "orange", "high": "red"}.get(state["risk"], "gray")
+        risk_emoji = {"low": "🟢", "medium": "🟡", "high": "🔴"}.get(state["risk"], "⚪")
+        risk_text = {"low": "低风险", "medium": "中风险", "high": "高风险"}.get(state["risk"], "未知")
+
+        # === 头部：状态名 + 强度 ===
+        st.divider()
+        col_head_left, col_head_right = st.columns([3, 1])
+        with col_head_left:
+            st.markdown(f"### 📊 短线状态：{state['state_cn']}")
+        with col_head_right:
+            st.metric("强度", f"{state['strength']}/100")
+
+        # === 叙事 ===
+        st.info(f"**市场行为**：{state['narrative']}")
+
+        # === 四维得分 ===
         sc = state["score_components"]
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("趋势", sc["trend_score"])
+        with c2:
+            st.metric("量能", sc["volume_score"])
+        with c3:
+            st.metric("动量", sc["momentum_score"])
+        with c4:
+            st.metric(f"{risk_emoji} 风险", sc["risk_score"])
 
-        card_html = f"""
-<div style="background:#0f0f1a; border-radius:16px; padding:20px; border-left:6px solid {state_color}; margin:12px 0;">
-    <!-- 头部 -->
-    <div style="display:flex; align-items:baseline; justify-content:space-between;">
-        <div>
-            <span style="font-size:12px; color:#888; letter-spacing:1px;">📊 短线状态</span>
-            <div style="font-size:28px; font-weight:700; color:{state_color}; margin-top:4px;">
-                {state['state_cn']}
-            </div>
-        </div>
-        <div style="background:#1e1e2e; padding:4px 16px; border-radius:40px; font-size:14px; color:#ddd;">
-            强度 <b style="color:{state_color}">{state['strength']}</b>
-        </div>
-    </div>
+        # === 标签 ===
+        tags_text = " · ".join(state["tags"])
+        st.caption(f"🏷️ {tags_text}  |  {risk_emoji} {risk_text}")
 
-    <!-- 叙事 -->
-    <div style="background:#1a1a24; border-radius:12px; padding:12px; margin-top:16px;">
-        <div style="color:#aaa; font-size:11px;">市场行为</div>
-        <div style="color:#eee; font-size:14px; margin-top:4px; line-height:1.6;">
-            {state['narrative']}
-        </div>
-    </div>
+        # === 剧本 ===
+        col_bull, col_bear = st.columns(2)
+        with col_bull:
+            st.success(f"✅ **多头剧本**\n\n{state['scenario_bullish']}")
+        with col_bear:
+            st.error(f"⚠️ **空头剧本**\n\n{state['scenario_bearish']}")
 
-    <!-- 得分 -->
-    <div style="display:flex; gap:16px; margin-top:14px; font-size:11px; color:#777;">
-        <span>趋势 {sc['trend_score']}</span> |
-        <span>量能 {sc['volume_score']}</span> |
-        <span>动量 {sc['momentum_score']}</span> |
-        <span>风险 {sc['risk_score']}</span>
-    </div>
+        # === 风险提示 ===
+        st.warning(f"⚠️ {state['risk_note']}")
 
-    <!-- 剧本 -->
-    <div style="margin-top:16px; border-top:1px solid #262636; padding-top:12px;">
-        <div style="font-size:13px; font-weight:600; color:#ddd;">🎯 短线剧本</div>
-        <div style="margin-top:8px;">
-            <div style="background:#1a2a1a; color:#aaffaa; padding:8px 12px; border-radius:8px; font-size:13px;">
-                ✅ {state['scenario_bullish']}
-            </div>
-            <div style="background:#2a1a1a; color:#ffaaaa; padding:8px 12px; border-radius:8px; font-size:13px; margin-top:8px;">
-                ⚠️ {state['scenario_bearish']}
-            </div>
-        </div>
-    </div>
-
-    <!-- 风险 -->
-    <div style="margin-top:12px; font-size:12px; color:#ffaa66; background:#2a1f1a; padding:6px 12px; border-radius:8px;">
-        ⚠️ {state['risk_note']}
-    </div>
-
-    <!-- 标签 -->
-    <div style="margin-top:10px; display:flex; gap:6px;">
-"""
-        for tag in state["tags"]:
-            tag_color = "#4ecdc4" if state["risk"] == "low" else "#f5a623" if state["risk"] == "medium" else "#e74c3c"
-            card_html += f'<span style="background:#1e1e2e; color:{tag_color}; padding:2px 10px; border-radius:20px; font-size:11px;">{tag}</span>'
-
-        card_html += """
-    </div>
-</div>
-"""
-        st.markdown(card_html, unsafe_allow_html=True)
-
-        # 联动：如果状态是恐慌/退潮，额外警示
         if state["state_key"] in ("panic_distribution", "decay"):
             st.error("🚨 该股当前处于高风险状态，请谨慎操作！")
 
     except Exception as e:
-        st.caption(f"短线状态卡片生成失败: {e}")
+        st.caption(f"短线状态卡生成失败: {e}")
 
 
 NAV_ITEMS = [
     {
         "key": "market_state",
-        "label": "市场状态",
+        "label": "晨报简报",
         "icon": "◉",
-        "hint": "全市场扫描",
+        "hint": "3分钟快读",
         "index": "01",
-        "title": "Market State",
-        "subtitle": "先看情绪周期、主线方向和风险级别，像交易终端一样判断市场温度。 ",
-        "signal": "SCAN / RISK / FLOW",
+        "title": "Morning Brief",
+        "subtitle": "仅保留今天真正重要的热点、故事线和一句话结论，适合晨间快速阅读。",
+        "signal": "BRIEF / STORY / READ",
     },
     {
         "key": "stock_state",
@@ -236,6 +208,87 @@ NAV_ITEMS = [
 ]
 
 NAV_META = {item["key"]: item for item in NAV_ITEMS}
+
+THEME_KEYWORDS = {
+    "AI": ["ai", "人工智能", "算力", "大模型", "芯片", "cpo", "数据中心", "服务器"],
+    "机器人": ["机器人", "人形机器人", "自动化", "智能制造", "工业母机"],
+    "半导体": ["半导体", "芯片", "存储", "光刻", "封测"],
+    "新能源": ["新能源", "锂电", "光伏", "储能", "风电", "固态电池"],
+    "军工": ["军工", "卫星", "商业航天", "低空", "飞行汽车"],
+    "医药": ["医药", "创新药", "医疗", "减肥药", "生物"],
+    "金融": ["金融", "券商", "银行", "保险", "并购", "国企改革"],
+    "消费": ["消费", "白酒", "零售", "电商", "旅游", "食品"],
+}
+
+
+def build_story_briefs(news_items, hot_sectors):
+    """将新闻标题和热点板块蒸馏为可快速阅读的故事线"""
+    texts = []
+    for item in news_items or []:
+        title = str(item.get("title", "")).strip()
+        if title:
+            texts.append(title)
+    for sector in hot_sectors or []:
+        name = str(sector.get("name", "")).strip()
+        if name:
+            texts.append(name)
+
+    theme_hits = []
+    lowered_texts = [t.lower() for t in texts]
+
+    for theme, keywords in THEME_KEYWORDS.items():
+        matched_titles = []
+        for original, lowered in zip(texts, lowered_texts):
+            if any(keyword.lower() in lowered for keyword in keywords):
+                matched_titles.append(original)
+        if matched_titles:
+            theme_hits.append(
+                {
+                    "theme": theme,
+                    "count": len(matched_titles),
+                    "headline": matched_titles[0],
+                    "support": matched_titles[1:3],
+                }
+            )
+
+    if theme_hits:
+        theme_hits.sort(key=lambda x: x["count"], reverse=True)
+        return theme_hits[:3]
+
+    token_counter = Counter()
+    for text in texts:
+        for token in re.findall(r"[\u4e00-\u9fffA-Za-z]{2,8}", text):
+            if token not in {"今日", "市场", "热点", "消息", "板块", "概念", "相关", "公司", "行业"}:
+                token_counter[token] += 1
+
+    fallback = []
+    for token, _ in token_counter.most_common(3):
+        fallback.append(
+            {
+                "theme": token,
+                "count": 1,
+                "headline": f"{token} 相关消息集中出现",
+                "support": [],
+            }
+        )
+    return fallback
+
+
+def load_morning_snapshot(force=False):
+    """加载早盘快读摘要，优先给首页展示热点与新闻蒸馏"""
+    if force or "morning_snapshot" not in st.session_state:
+        summary = {"hot_news": [], "hot_sectors": [], "strong_stocks": [], "market_strength": "未知"}
+        try:
+            from modules.morning_analyzer import MorningAnalyzer
+
+            analyzer = MorningAnalyzer()
+            data = analyzer.collect_market_data()
+            if data.get("success"):
+                summary = analyzer.get_summary()
+        except Exception:
+            pass
+        st.session_state["morning_snapshot"] = summary
+    return st.session_state.get("morning_snapshot", {"hot_news": [], "hot_sectors": []})
 
 
 def inject_terminal_nav_css():
@@ -534,7 +587,7 @@ def render_terminal_brand():
                 <div>
                     <div class="terminal-brand-title">AI 股票市场终端</div>
                     <div class="terminal-brand-desc">
-                        TradingView 风格导航 + Bloomberg 终端质感，保留原业务逻辑，仅升级导航与切换体验。
+                        每天 3 分钟快速读懂热点、主线和市场故事。
                     </div>
                 </div>
                 <div class="terminal-status-chip">
@@ -809,6 +862,7 @@ elif current_page == "market_state":
     with top_right:
         if st.button("⚡ 刷新", key="dash_refresh"):
             st.session_state["dashboard_result"] = None
+            st.session_state.pop("morning_snapshot", None)
             st.session_state.pop("script_parsed", None)
             st.rerun()
 
@@ -826,6 +880,11 @@ elif current_page == "market_state":
         st.rerun()
 
     R = st.session_state["dashboard_result"]
+    if "morning_snapshot" not in st.session_state:
+        with st.spinner("📰 正在整理今日热点与故事线..."):
+            load_morning_snapshot(force=True)
+    morning_snapshot = load_morning_snapshot()
+
     cycle = R["cycle"]
     cycle_color = CYCLE_HEX.get(cycle, "#888")
     cycle_tag_color = CYCLE_COLORS.get(cycle, "blue")
@@ -951,106 +1010,143 @@ elif current_page == "market_state":
 
     if ai_fund.get("风险偏好"):
         cockpit_desc = (
-            f"AI 正在实时监控市场，当前识别为 {market_state_display}，"
-            f"资金风险偏好处于「{ai_fund.get('风险偏好', '观察中')}」阶段。"
+            f"当前先看主线和故事，不看杂讯。AI 识别市场处于 {market_state_display}，"
+            f"资金风险偏好为「{ai_fund.get('风险偏好', '观察中')}」。"
         )
     else:
         cockpit_desc = (
-            f"AI 正在实时监控市场，当前识别为 {market_state_display}，"
-            f"建议以「{action_text}」为主，避免在高噪音区间无效出手。"
+            f"当前只保留最有用的信息。市场处于 {market_state_display}，"
+            f"建议以「{action_text}」为主，避免无效阅读和无效出手。"
         )
 
-    # ============================================================
-    # 超大市场状态卡片
-    # ============================================================
+    morning_hot_sectors = morning_snapshot.get("hot_sectors") or R.get("hot_sectors", []) or []
+    morning_hot_news = morning_snapshot.get("hot_news") or []
+    story_briefs = build_story_briefs(morning_hot_news, morning_hot_sectors)
+    quick_news = morning_hot_news[:5]
+
     st.markdown(f"""
-    <div class="market-cockpit tone-{hero_tone}">
-        <div class="market-cockpit-grid">
-            <div class="market-cockpit-left">
-                <div class="market-cockpit-kicker">
-                    <span class="market-cockpit-dot"></span>
-                    AI MARKET MONITOR ONLINE
-                </div>
-                <div class="market-cockpit-title">
-                    <div>
-                        <div class="terminal-state-label">当前市场状态</div>
-                        <div class="market-cockpit-state">{market_state_display}</div>
-                    </div>
-                    <div class="market-cockpit-action">
-                        <span>{action_text}</span>
-                        <span style="opacity:0.72;">/ {action_hint}</span>
-                    </div>
-                </div>
-                <div class="market-cockpit-desc">
-                    {cockpit_desc}
-                </div>
-                <div class="market-cockpit-script">
-                    <div class="market-cockpit-script-label">🎯 今日剧本</div>
-                    <div class="market-cockpit-script-text">{script_text}</div>
-                </div>
-            </div>
-            <div class="market-cockpit-panels">
-                <div class="market-cockpit-panel">
-                    <div class="market-cockpit-panel-label">🔥 当前主线</div>
-                    <div class="market-cockpit-panel-value tone">{mainline_display}</div>
-                    <div class="market-cockpit-panel-sub">{mainline_stage or '主线等待进一步确认'} {f"· 龙头 {mainline_leader}" if mainline_leader else ""}</div>
-                </div>
-                <div class="market-cockpit-panel">
-                    <div class="market-cockpit-panel-label">⚠️ 风险等级</div>
-                    <div class="market-cockpit-risk {risk_level}">{risk_label_emoji} {risk_display_text}</div>
-                    <div class="market-cockpit-panel-sub">炸板率 {sentiment.get("bomb_rate", 0):.1%} · 跌停 {sentiment.get("limit_down_count", 0)} 家</div>
-                </div>
-                <div class="market-cockpit-panel">
-                    <div class="market-cockpit-panel-label">📊 情绪强度</div>
-                    <div class="market-cockpit-panel-value">涨停 {sentiment.get("limit_up_count", 0)} / 跌停 {sentiment.get("limit_down_count", 0)}</div>
-                    <div class="market-cockpit-panel-sub">连板高度 {sentiment.get("连板高度", 0)} 板 · 上涨家数 {sentiment.get("rising_count", 0)}</div>
-                </div>
-                <div class="market-cockpit-panel">
-                    <div class="market-cockpit-panel-label">🧠 风险提示</div>
-                    <div class="market-cockpit-danger-list">
-                        {danger_list_html if danger_list_html else '<div class="market-cockpit-danger"><strong style="color:#3ddc97;">✅ 风险可控</strong> AI 暂未捕捉到高优先级危险信号，允许围绕主线观察回流。</div>'}
-                    </div>
-                </div>
-            </div>
+    <div class="morning-brief-hero tone-{hero_tone}">
+        <div class="morning-brief-kicker">
+            <span class="morning-brief-dot"></span>
+            Morning Analysis 1
         </div>
-        <div class="market-cockpit-signals">
-            <div class="market-cockpit-signal"><span>📍</span><strong>状态</strong> {state_tag(cycle, cycle_tag_color)}</div>
-            <div class="market-cockpit-signal"><span>🔁</span><strong>趋势</strong> {trend or '—'}</div>
-            <div class="market-cockpit-signal"><span>💰</span><strong>资金</strong> {ai_fund.get('资金流向', '资金待确认')}</div>
-            <div class="market-cockpit-signal"><span>👁</span><strong>观测</strong> {(ai_obs[0].get('观测内容', '观察主线回流') if ai_obs else '观察主线回流')}</div>
-            <div class="market-cockpit-signal"><span>🎯</span><strong>策略</strong> {action_text}</div>
+        <div class="morning-brief-title">
+            <div class="morning-brief-headline">
+                今天先看 <strong>{mainline_display}</strong><br>
+                市场处于 <strong>{market_state_display}</strong>
+            </div>
+            <div class="morning-brief-pill">{action_text} · {action_hint}</div>
+        </div>
+        <div class="morning-brief-desc">{cockpit_desc}</div>
+        <div class="morning-brief-editor">
+            <div class="morning-brief-editor-label">今日一句话</div>
+            <div class="morning-brief-editor-text">{script_text}</div>
+        </div>
+        <div class="morning-brief-meta">
+            <div class="morning-brief-meta-card">
+                <div class="morning-brief-meta-label">主线</div>
+                <div class="morning-brief-meta-value">{mainline_display}</div>
+                <div class="morning-brief-meta-sub">{mainline_stage or '主线等待进一步确认'} {f"· 龙头 {mainline_leader}" if mainline_leader else ""}</div>
+            </div>
+            <div class="morning-brief-meta-card">
+                <div class="morning-brief-meta-label">风险</div>
+                <div class="morning-brief-meta-value">{risk_display_text}</div>
+                <div class="morning-brief-meta-sub">炸板率 {sentiment.get("bomb_rate", 0):.1%} · 跌停 {sentiment.get("limit_down_count", 0)} 家</div>
+            </div>
+            <div class="morning-brief-meta-card">
+                <div class="morning-brief-meta-label">情绪</div>
+                <div class="morning-brief-meta-value">涨停 {sentiment.get("limit_up_count", 0)} / 跌停 {sentiment.get("limit_down_count", 0)}</div>
+                <div class="morning-brief-meta-sub">连板高度 {sentiment.get("连板高度", 0)} 板 · 上涨家数 {sentiment.get("rising_count", 0)}</div>
+            </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # ============================================================
-    # TOP3 热点板块
-    # ============================================================
-    hot_sectors = R.get("hot_sectors", [])
-    if hot_sectors:
-        valid = [s for s in hot_sectors if isinstance(s, dict) and 'name' in s and 'change_pct' in s]
-        if valid:
-            st.markdown('<div class="terminal-section-header">🔥 TOP3 热点板块</div>', unsafe_allow_html=True)
-            cols_s = st.columns(3)
-            for i, s in enumerate(valid[:3]):
-                with cols_s[i]:
-                    change = s.get("change_pct", 0)
-                    up = change > 0
-                    bar_color = "#4ecdc4" if up else "#e74c3c"
-                    st.markdown(f"""
-                    <div class="terminal-sector-card">
-                        <div style="display:flex; align-items:center; justify-content:space-between;">
-                            <div style="font-size:15px; font-weight:700; color:#ddd;">{s["name"]}</div>
-                            <div style="font-size:18px; font-weight:800; color:{bar_color};">{change:+.1f}%</div>
+    cols_brief = st.columns([1.08, 0.92])
+
+    with cols_brief[0]:
+        st.markdown('<div class="morning-brief-panel"><div class="morning-brief-panel-title">🔥 今日热点</div>', unsafe_allow_html=True)
+        if morning_hot_sectors:
+            for idx, sector in enumerate(morning_hot_sectors[:5], 1):
+                change = float(sector.get("change_pct", 0) or 0)
+                sector_color = "#3ddc97" if change > 0 else "#ff6b6b"
+                rise_info = ""
+                if sector.get("rise_count") is not None and sector.get("fall_count") is not None:
+                    rise_info = f"涨{sector.get('rise_count', 0)}/跌{sector.get('fall_count', 0)}"
+                st.markdown(
+                    f"""
+                    <div class="story-brief-card">
+                        <div class="story-brief-head">
+                            <span class="story-brief-index">0{idx}</span>
+                            <span class="story-brief-title">{sector.get('name', '未知板块')}</span>
+                            <span class="story-brief-badge" style="color:{sector_color};">{change:+.1f}%</span>
                         </div>
-                        <div style="margin-top:8px; height:4px; border-radius:2px; background:#1c1c30;">
-                            <div style="height:4px; border-radius:2px; width:{min(abs(change)*8, 100)}%; background:{bar_color};"></div>
-                        </div>
-                        <div style="margin-top:6px; font-size:11px; color:#555;">
-                            成交 {s.get('volume', 0):.0f}亿 · 领涨 {s.get('leader', '—')}
+                        <div class="story-brief-sub">
+                            {sector.get('leader', '市场关注中')} {f"· {rise_info}" if rise_info else ""}
                         </div>
                     </div>
-                    """, unsafe_allow_html=True)
+                    """,
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.info("暂无热点板块数据")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with cols_brief[1]:
+        st.markdown('<div class="morning-brief-panel"><div class="morning-brief-panel-title">🧠 故事线蒸馏</div>', unsafe_allow_html=True)
+        if story_briefs:
+            for brief in story_briefs:
+                support_lines = "".join(
+                    f"<li>{line}</li>" for line in brief.get("support", [])[:2]
+                )
+                st.markdown(
+                    f"""
+                    <div class="story-brief-card">
+                        <div class="story-brief-head">
+                            <span class="story-brief-title">{brief['theme']}</span>
+                            <span class="story-brief-badge neutral">{brief['count']} 条线索</span>
+                        </div>
+                        <div class="story-brief-main">{brief['headline']}</div>
+                        {f'<ul class="story-brief-list">{support_lines}</ul>' if support_lines else ''}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.info("暂无可蒸馏的故事线")
+
+        st.markdown(
+            f"""
+            <div class="morning-brief-note">
+                <strong>今天不要看太多：</strong>
+                先盯住 <strong>{mainline_display}</strong>，再看 {risk_display_text} 和回流信号，
+                其余杂讯可以先放掉。
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="morning-brief-panel"><div class="morning-brief-panel-title">📰 快速阅读</div>', unsafe_allow_html=True)
+    if quick_news:
+        for idx, news in enumerate(quick_news, 1):
+            title = news.get("title", "未命名消息")
+            source = news.get("source", "资讯源")
+            st.markdown(
+                f"""
+                <div class="news-quick-item">
+                    <div class="news-quick-index">{idx}</div>
+                    <div class="news-quick-body">
+                        <div class="news-quick-title">{title}</div>
+                        <div class="news-quick-meta">{source}</div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+    else:
+        st.info("暂无热点消息")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 elif current_page == "market_timeline":
     from ui.theme import inject_theme, CYCLE_COLORS, RISK_HEX, state_tag

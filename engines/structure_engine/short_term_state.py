@@ -12,13 +12,13 @@ from typing import Dict, List, Tuple
 # 市场行为统一命名表
 # ============================================================
 STATE_MAPPING = {
-    "acceleration":      "主升加速",
-    "breakout":          "突破启动",
-    "reversal_reclaim":  "弱转强",
-    "panic_distribution":"恐慌出货",
-    "decay":             "缩量退潮",
-    "trend_follow":      "健康上行",
-    "consolidation":     "横盘蓄势"
+    "acceleration":      "🚀 强势主升",
+    "breakout":          "📈 平台突破",
+    "reversal_reclaim":  "🔄 弱转强",
+    "panic_distribution":"🆘 恐慌抛售",
+    "decay":             "📉 缩量阴跌",
+    "trend_follow":      "📈 趋势上行",
+    "consolidation":     "⏸️ 横盘整理"
 }
 
 # ============================================================
@@ -59,12 +59,12 @@ SCENARIO_TEMPLATES = {
 # 风险提示文案（按状态）
 # ============================================================
 RISK_NOTES = {
-    "acceleration":        "短期过热，连续加速后分歧概率上升，注意回撤风险。",
-    "breakout":            "突破初期需确认有效性，假突破回落的伤害较大。",
-    "reversal_reclaim":    "弱转强尚未完全确认，若量能跟不上则可能再次转弱。",
-    "panic_distribution":  "恐慌情绪未释放完毕，盲目抄底风险极高。",
-    "decay":               "缩量阴跌难言底，流动性枯竭下任何反弹都可能是诱多。",
-    "trend_follow":        "趋势健康但需留意关键均线支撑，不破不卖。",
+    "acceleration":        "连续加速后分歧概率上升，注意高位回撤。",
+    "breakout":            "突破初期需确认有效性，假突破伤害较大。",
+    "reversal_reclaim":    "弱转强未完全确认，量能跟不上则再次转弱。",
+    "panic_distribution":  "恐慌抛售未结束，盲目抄底风险极高。",
+    "decay":               "缩量阴跌难言底，任何反弹都可能是诱多。",
+    "trend_follow":        "趋势健康但需留意均线支撑，不破不卖。",
     "consolidation":       "方向选择节点，不宜重仓押注单方向。"}
 
 

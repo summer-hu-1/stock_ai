@@ -8,6 +8,105 @@ from datetime import datetime, timedelta
 from auth.auth import login_user, register_user, set_session_user, logout_user, get_user_by_email, is_valid_email
 import extra_streamlit_components as argx
 
+
+def inject_login_dialog_css():
+    """登录弹窗专属样式，避免受全局输入框样式影响"""
+    st.markdown(
+        """
+        <style>
+        [data-testid="stDialog"] {
+            background: linear-gradient(180deg, rgba(6, 10, 20, 0.98), rgba(6, 11, 22, 0.96)) !important;
+            border: 1px solid rgba(91, 130, 255, 0.18) !important;
+            box-shadow: 0 24px 64px rgba(0, 0, 0, 0.38) !important;
+        }
+
+        [data-testid="stDialog"] > div {
+            border-radius: 26px !important;
+        }
+
+        [data-testid="stDialog"] .stTabs [data-baseweb="tab-list"] {
+            gap: 8px;
+        }
+
+        [data-testid="stDialog"] .stTabs [data-baseweb="tab"] {
+            border-radius: 14px 14px 0 0 !important;
+            padding: 0.7rem 1rem !important;
+        }
+
+        [data-testid="stDialog"] .stTextInput label,
+        [data-testid="stDialog"] .stCheckbox label {
+            color: #c8d5f2 !important;
+        }
+
+        [data-testid="stDialog"] div[data-baseweb="input"] > div {
+            min-height: 58px !important;
+            border-radius: 18px !important;
+            background: linear-gradient(145deg, rgba(15, 22, 42, 0.96), rgba(11, 17, 31, 0.92)) !important;
+            border: 1px solid rgba(77, 111, 196, 0.18) !important;
+            box-shadow:
+                inset 0 1px 0 rgba(255,255,255,0.04),
+                0 10px 24px rgba(0, 0, 0, 0.18) !important;
+        }
+
+        [data-testid="stDialog"] div[data-baseweb="input"] > div:hover {
+            border-color: rgba(84, 168, 255, 0.28) !important;
+            box-shadow:
+                inset 0 1px 0 rgba(255,255,255,0.04),
+                0 12px 28px rgba(0, 0, 0, 0.22) !important;
+        }
+
+        [data-testid="stDialog"] div[data-baseweb="input"] > div:focus-within {
+            border-color: rgba(84, 168, 255, 0.52) !important;
+            box-shadow:
+                0 0 0 1px rgba(84, 168, 255, 0.16),
+                0 0 24px rgba(84, 168, 255, 0.16),
+                inset 0 1px 0 rgba(255,255,255,0.04) !important;
+        }
+
+        [data-testid="stDialog"] div[data-baseweb="input"] input {
+            color: #f4f7ff !important;
+            font-size: 16px !important;
+            padding-left: 2px !important;
+            caret-color: #53b8ff !important;
+        }
+
+        [data-testid="stDialog"] div[data-baseweb="input"] input::placeholder {
+            color: rgba(182, 194, 220, 0.58) !important;
+        }
+
+        [data-testid="stDialog"] div[data-baseweb="input"] button {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            min-height: auto !important;
+            padding-right: 8px !important;
+        }
+
+        [data-testid="stDialog"] div[data-baseweb="input"] svg {
+            color: #d9e4ff !important;
+            opacity: 0.9;
+        }
+
+        [data-testid="stDialog"] input:-webkit-autofill,
+        [data-testid="stDialog"] input:-webkit-autofill:hover,
+        [data-testid="stDialog"] input:-webkit-autofill:focus,
+        [data-testid="stDialog"] input:-webkit-autofill:active {
+            -webkit-text-fill-color: #f4f7ff !important;
+            caret-color: #53b8ff !important;
+            transition: background-color 99999s ease-in-out 0s;
+            box-shadow: 0 0 0 1000px rgba(14, 21, 40, 0.98) inset !important;
+            border-radius: 14px !important;
+        }
+
+        [data-testid="stDialog"] .stCheckbox > label {
+            gap: 10px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 # 初始化 Cookie 管理器
 def get_cookie_manager():
     if "cookie_manager" not in st.session_state:
@@ -18,14 +117,26 @@ def get_cookie_manager():
 def login_dialog():
     """使用 st.dialog 实现的登录弹窗，邮箱为核心凭据"""
     cookie_manager = get_cookie_manager()
+    inject_login_dialog_css()
     
     # 标签页切换
     tab1, tab2 = st.tabs(["🔐 登录", "📝 注册"])
     
     with tab1:
         st.markdown("#### 👋 欢迎回来")
-        email = st.text_input("邮箱", placeholder="请输入邮箱地址", key="login_email_dialog")
-        password = st.text_input("密码", type="password", placeholder="请输入密码", key="login_password_dialog")
+        email = st.text_input(
+            "邮箱",
+            placeholder="请输入邮箱地址",
+            key="login_email_dialog",
+            autocomplete="email",
+        )
+        password = st.text_input(
+            "密码",
+            type="password",
+            placeholder="请输入密码",
+            key="login_password_dialog",
+            autocomplete="current-password",
+        )
         
         remember_me = st.checkbox("记住我（30天内保持登录状态）", value=True, key="remember_me_dialog")
         
@@ -42,9 +153,10 @@ def login_dialog():
                     
                     if success:
                         set_session_user(user)
-                        # 如果勾选了记住我，保存邮箱到 Cookie（30天）
+                        # 标记待设置 cookie（由主页面 check_auto_login 完成，
+                        # 因为 dialog 内的 CookieManager 在 rerun 后可能已被销毁）
                         if remember_me:
-                            cookie_manager.set("saved_email", email, expires_at=datetime.now() + timedelta(days=30))
+                            st.session_state["_pending_cookie_email"] = email
                         
                         st.success(message)
                         st.rerun()
@@ -53,11 +165,33 @@ def login_dialog():
         
     with tab2:
         st.markdown("#### ✨ 创建新账号")
-        reg_email = st.text_input("邮箱 *", placeholder="请输入邮箱地址", key="reg_email_dialog",
-                                   help="邮箱是您的唯一身份标识，用于登录")
-        reg_name = st.text_input("昵称", placeholder="请输入昵称（可选）", key="reg_name_dialog")
-        reg_password = st.text_input("密码", type="password", placeholder="至少6个字符", key="reg_password_dialog")
-        reg_confirm = st.text_input("确认密码", type="password", placeholder="请再次输入密码", key="reg_confirm_dialog")
+        reg_email = st.text_input(
+            "邮箱 *",
+            placeholder="请输入邮箱地址",
+            key="reg_email_dialog",
+            help="邮箱是您的唯一身份标识，用于登录",
+            autocomplete="email",
+        )
+        reg_name = st.text_input(
+            "昵称",
+            placeholder="请输入昵称（可选）",
+            key="reg_name_dialog",
+            autocomplete="name",
+        )
+        reg_password = st.text_input(
+            "密码",
+            type="password",
+            placeholder="至少6个字符",
+            key="reg_password_dialog",
+            autocomplete="new-password",
+        )
+        reg_confirm = st.text_input(
+            "确认密码",
+            type="password",
+            placeholder="请再次输入密码",
+            key="reg_confirm_dialog",
+            autocomplete="new-password",
+        )
         
         if st.button("创建账号", use_container_width=True, type="primary", key="reg_btn_dialog"):
             if not reg_email or not reg_password:
@@ -81,47 +215,73 @@ def login_dialog():
 def check_auto_login():
     """
     检查 Cookie 并尝试自动登录。
-    
-    由于 extra_streamlit_components.CookieManager 是异步的，
-    第一个脚本运行可能返回 None，CookieManager 会在获取到 cookie 值后触发 rerun。
-    使用 _auto_login_phase 状态标记来管理工作流程：
-    - 未设置 → 第一次尝试（等待 CookieManager 响应）
-    - "waiting" → CookieManager 已请求，等待 rerun
-    - "done" → 已尝试完成（有或无 cookie）
+
+    双保险策略：
+    1. CookieManager（浏览器 cookie）— 主要持久化方式
+    2. st.cache_resource（服务端缓存）— CookieManager 异步失败时的回退
+
+    流程：
+    - 首次运行 → 尝试读 cookie → 未加载则等待 CookieManager 触发 rerun
+    - 有 cookie → 直接登录
+    - 无 cookie → 3 次 retry 后放弃（防止无限等待）
     """
     if "user" in st.session_state and st.session_state["user"]:
+        # 用户已登录：处理待写入的 cookie（来自 dialog 登录）
+        pending_email = st.session_state.pop("_pending_cookie_email", None)
+        if pending_email:
+            try:
+                cookie_manager = get_cookie_manager()
+                cookie_manager.set("saved_email", pending_email, expires_at=datetime.now() + timedelta(days=30))
+            except Exception:
+                pass
         return True
-    
+
+    @st.cache_resource(ttl=86400)
+    def _cached_user_lookup(email: str):
+        """服务端缓存用户查询（24h），作为 CookieManager 失败时的回退"""
+        return get_user_by_email(email)
+
+    # 处理待写入的 cookie（首次登录后从 dialog 转交）
+    pending_email = st.session_state.pop("_pending_cookie_email", None)
+    if pending_email:
+        try:
+            cookie_manager = get_cookie_manager()
+            cookie_manager.set("saved_email", pending_email, expires_at=datetime.now() + timedelta(days=30))
+        except Exception:
+            pass
+
     phase = st.session_state.get("_auto_login_phase", None)
-    
-    # 已完成尝试，不再重复
-    if phase == "done":
+    attempt = st.session_state.get("_auto_login_attempt", 0)
+
+    # 安全阀：超过 3 次尝试仍未拿到 cookie，放弃自动登录
+    if phase == "done" or attempt >= 3:
+        st.session_state["_auto_login_phase"] = "done"
         return False
-    
+
     cookie_manager = get_cookie_manager()
     saved_email = cookie_manager.get("saved_email")
-    
-    if saved_email:
-        # Cookie 值已加载，尝试自动登录
-        user = get_user_by_email(saved_email)
+
+    # --- 有 cookie 值 → 尝试登录 ---
+    if saved_email and isinstance(saved_email, str) and '@' in saved_email:
+        user = _cached_user_lookup(saved_email)
         if user:
             set_session_user(user)
             st.session_state["_auto_login_phase"] = "done"
+            st.session_state["_auto_login_attempt"] = 0
             return True
         else:
-            # Cookie 中的邮箱无效，清除 cookie 和状态
             cookie_manager.delete("saved_email")
             st.session_state["_auto_login_phase"] = "done"
             return False
-    
-    # Cookie 值尚未加载（首次运行）
+
+    # --- 首次运行，cookie 尚未加载 ---
     if phase is None:
         st.session_state["_auto_login_phase"] = "waiting"
-        # CookieManager 会在获取到 cookie 后自动触发 streamlit rerun
+        st.session_state["_auto_login_attempt"] = 1
         return False
-    
-    # phase == "waiting": CookieManager 已经查询过，但没有 cookie（无 cookie 时不触发 rerun）
-    st.session_state["_auto_login_phase"] = "done"
+
+    # --- 仍在等待 CookieManager 响应 ---
+    st.session_state["_auto_login_attempt"] = attempt + 1
     return False
 
 

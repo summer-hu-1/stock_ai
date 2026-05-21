@@ -121,7 +121,8 @@ def logout_user():
         st.session_state["cookie_manager"].delete("saved_email")
     
     # 清除会话状态
-    keys_to_remove = ["user", "username", "role", "membership", "_auto_login_phase"]
+    keys_to_remove = ["user", "username", "role", "membership", 
+                      "_auto_login_phase", "_auto_login_attempt", "_pending_cookie_email"]
     for key in keys_to_remove:
         if key in st.session_state:
             del st.session_state[key]

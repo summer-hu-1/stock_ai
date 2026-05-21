@@ -313,7 +313,7 @@ class AttackOpportunityEngine:
             reasons.append(f"量比 {vol_ratio:.1f}x，量能放大")
 
         state_cn = state.get("state_cn", "")
-        if state_cn in ["突破启动", "弱转强", "主升加速"]:
+        if state_cn in ["🚀 强势主升", "📈 平台突破", "🔄 弱转强"]:
             reasons.append(f"短线状态：{state_cn}")
 
         if sc.get("volume_score", 0) > 75:
