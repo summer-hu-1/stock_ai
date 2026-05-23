@@ -533,7 +533,7 @@ python scripts/init_auth.py
 streamlit run app.py
 
 # 或指定端口启动
-streamlit run app.py --server.port 8501
+python3 -m streamlit run app.py --server.port 8501
 ```
 
 访问：**http://localhost:8501**

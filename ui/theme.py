@@ -1180,6 +1180,331 @@ code {
     .morning-brief-headline {
         font-size: 32px;
     }
+
+    .pulse-hero-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .next-day-card {
+        padding: 22px 18px;
+    }
+}
+
+/* ================================================================
+   Minimal Terminal — 新增组件样式
+   ================================================================ */
+
+/* --- 动态状态条 --- */
+.pulse-hero-bar {
+    position: relative;
+    overflow: hidden;
+    border-radius: 24px;
+    padding: 28px 32px;
+    margin: 8px 0 24px 0;
+    background:
+        linear-gradient(160deg, rgba(8, 12, 22, 0.96), rgba(10, 15, 28, 0.88));
+    border: 1px solid rgba(109, 138, 215, 0.14);
+    box-shadow:
+        0 20px 46px rgba(0, 0, 0, 0.32),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(16px);
+}
+
+.pulse-hero-bar::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(ellipse at 12% 8%, rgba(47, 224, 255, 0.06), transparent 30%),
+        radial-gradient(ellipse at 85% 20%, rgba(255, 148, 77, 0.05), transparent 25%);
+    pointer-events: none;
+}
+
+.pulse-hero-grid {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 24px;
+    align-items: center;
+}
+
+.pulse-hero-main {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pulse-hero-signal {
+    font-size: 28px;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    color: var(--text-0);
+    line-height: 1.3;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.pulse-hero-signal .dot {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: 0 0 18px currentColor;
+    animation: terminal-pulse-anim 2s ease-in-out infinite;
+}
+
+.pulse-hero-signal .dot.green { background: var(--green); color: var(--green); }
+.pulse-hero-signal .dot.red   { background: var(--red);   color: var(--red);   }
+.pulse-hero-signal .dot.yellow{ background: var(--yellow); color: var(--yellow); }
+
+.pulse-hero-meta {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--text-2);
+}
+
+.pulse-hero-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.pulse-hero-meta strong {
+    color: var(--text-0);
+    font-weight: 700;
+}
+
+.pulse-hero-hint {
+    font-size: 14px;
+    color: var(--text-2);
+    line-height: 1.6;
+    max-width: 500px;
+    padding: 12px 16px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(109, 138, 215, 0.10);
+}
+
+/* --- 市场理解简报卡片 --- */
+.brief-card {
+    border-radius: 20px;
+    padding: 24px 26px;
+    margin-bottom: 18px;
+    background: linear-gradient(145deg, rgba(13, 20, 37, 0.82), rgba(10, 15, 28, 0.70));
+    border: 1px solid rgba(103, 132, 208, 0.14);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    line-height: 1.85;
+    font-size: 15px;
+    color: var(--text-1);
+}
+
+.brief-card .label {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin-bottom: 10px;
+}
+
+/* --- 主线记忆组件 --- */
+.main-line-memory {
+    border-radius: 20px;
+    padding: 22px 24px;
+    margin-bottom: 18px;
+    background: linear-gradient(145deg, rgba(13, 20, 37, 0.82), rgba(10, 15, 28, 0.70));
+    border: 1px solid rgba(103, 132, 208, 0.14);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.main-line-memory .label {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin-bottom: 14px;
+}
+
+.main-line-memory .line {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 7px 0;
+    font-size: 14px;
+    color: var(--text-1);
+    line-height: 1.7;
+}
+
+.main-line-memory .line .day {
+    font-weight: 800;
+    color: var(--blue);
+    min-width: 85px;
+    flex-shrink: 0;
+}
+
+/* --- 异动时间线 --- */
+.timeline-list {
+    border-radius: 20px;
+    padding: 22px 24px;
+    margin-bottom: 18px;
+    background: linear-gradient(145deg, rgba(13, 20, 37, 0.82), rgba(10, 15, 28, 0.70));
+    border: 1px solid rgba(103, 132, 208, 0.14);
+}
+
+.timeline-list .label {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin-bottom: 14px;
+}
+
+.timeline-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 8px 0;
+    font-size: 14px;
+    color: var(--text-1);
+    line-height: 1.7;
+    border-bottom: 1px solid rgba(103, 132, 208, 0.08);
+}
+
+.timeline-item:last-child {
+    border-bottom: none;
+}
+
+.timeline-item .time {
+    font-weight: 800;
+    color: var(--cyan);
+    min-width: 48px;
+    flex-shrink: 0;
+    font-size: 13px;
+}
+
+/* --- 风险提醒卡片 --- */
+.risk-list {
+    border-radius: 20px;
+    padding: 20px 24px;
+    margin-bottom: 18px;
+    background: linear-gradient(145deg, rgba(255, 107, 107, 0.05), rgba(220, 80, 80, 0.03));
+    border: 1px solid rgba(255, 107, 107, 0.16);
+}
+
+.risk-list .label {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin-bottom: 12px;
+}
+
+.risk-item {
+    padding: 8px 0;
+    font-size: 14px;
+    color: var(--text-1);
+    line-height: 1.7;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.risk-item .icon {
+    color: var(--red);
+    flex-shrink: 0;
+}
+
+/* --- 次日剧本卡片（核心付费内容，最大） --- */
+.next-day-card {
+    border-radius: 22px;
+    padding: 28px 28px 24px;
+    margin-bottom: 18px;
+    background:
+        linear-gradient(160deg, rgba(14, 22, 40, 0.94), rgba(10, 16, 30, 0.88));
+    border: 1px solid rgba(84, 168, 255, 0.20);
+    box-shadow:
+        0 18px 44px rgba(0, 0, 0, 0.28),
+        0 0 0 1px rgba(84, 168, 255, 0.06),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.next-day-card .label {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--cyan);
+    margin-bottom: 16px;
+    font-weight: 800;
+}
+
+.next-day-card .scenario-block {
+    margin-bottom: 14px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(103, 132, 208, 0.10);
+    font-size: 14px;
+    color: var(--text-1);
+    line-height: 1.75;
+}
+
+.next-day-card .scenario-block .condition {
+    font-weight: 800;
+    color: var(--yellow);
+    margin-bottom: 4px;
+}
+
+.next-day-card .risk-note {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: rgba(255, 107, 107, 0.08);
+    border: 1px solid rgba(255, 107, 107, 0.15);
+    font-size: 13px;
+    color: var(--red);
+}
+
+/* --- 通用终端卡片 --- */
+.trader-card {
+    border-radius: 20px;
+    padding: 20px 24px;
+    margin-bottom: 16px;
+    background: linear-gradient(145deg, rgba(13, 20, 37, 0.82), rgba(10, 15, 28, 0.70));
+    border: 1px solid rgba(103, 132, 208, 0.14);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.trader-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(108, 170, 255, 0.22);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.22);
+}
+
+.trader-card .label {
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin-bottom: 10px;
+}
+
+.trader-card .value {
+    font-size: 16px;
+    color: var(--text-0);
+    font-weight: 600;
+    line-height: 1.75;
+}
+
+.trader-card .sub {
+    margin-top: 6px;
+    font-size: 13px;
+    color: var(--text-2);
+    line-height: 1.6;
 }
 </style>
 """
