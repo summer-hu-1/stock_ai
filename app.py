@@ -1538,6 +1538,113 @@ elif current_page == "data_center":
                 vol_data = df.tail(100)[['date', 'volume']].copy()
                 vol_data['date'] = pd.to_datetime(vol_data['date']).dt.strftime('%Y-%m-%d')
                 st.bar_chart(vol_data.set_index('date'))
+
+            # ========== 财报量化打分 ==========
+            st.divider()
+            st.subheader("📊 财报量化打分")
+
+            col_score_btn, _ = st.columns([1, 3])
+            with col_score_btn:
+                generate_score = st.button(
+                    "🔍 生成财报打分",
+                    key=f"gen_score_{stock_code}",
+                    type="primary",
+                    help="从 AkShare 获取最新财报数据并量化评分"
+                )
+
+            # session 级缓存
+            score_cache_key = f"financial_score_{stock_code}"
+
+            if generate_score:
+                with st.spinner("📡 正在拉取财报数据并计算评分..."):
+                    try:
+                        from modules.financial_scorer import FinancialScorer
+                        scorer = FinancialScorer()
+                        result = scorer.score_all(stock_code)
+                        st.session_state[score_cache_key] = result
+                    except Exception as e:
+                        st.session_state[score_cache_key] = {
+                            'success': False,
+                            'errors': [f'评分引擎错误: {str(e)}'],
+                            'total_score': 0,
+                            'max_total': 100,
+                            'rating': '评分失败',
+                            'rating_desc': str(e),
+                            'scores': {},
+                        }
+
+            # 显示缓存结果
+            cached_result = st.session_state.get(score_cache_key)
+            if cached_result:
+                result = cached_result
+
+                if result.get('errors'):
+                    for err in result['errors']:
+                        st.caption(f"⚠️ {err}")
+
+                if result['success'] or result.get('scores'):
+                    # 总分仪表盘
+                    total = result['total_score']
+                    max_total = result['max_total']
+                    pct = total / max_total if max_total > 0 else 0
+
+                    # 评分配色
+                    if pct >= 0.8:
+                        score_color = '#27AE60'
+                    elif pct >= 0.7:
+                        score_color = '#2ECC71'
+                    elif pct >= 0.6:
+                        score_color = '#F39C12'
+                    else:
+                        score_color = '#E74C3C'
+
+                    col_total, col_rating = st.columns([1, 2])
+                    with col_total:
+                        st.markdown(f"""
+                        <div style="text-align:center; padding:15px; border:2px solid {score_color}; border-radius:12px; background:rgba(0,0,0,0.1);">
+                            <div style="font-size:11px; color:#888; text-transform:uppercase; letter-spacing:2px;">综合评分</div>
+                            <div style="font-size:48px; font-weight:bold; color:{score_color}; line-height:1.2;">{total}</div>
+                            <div style="font-size:13px; color:#666;">/ {max_total}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    with col_rating:
+                        st.markdown(f"""
+                        <div style="padding:10px 0;">
+                            <div style="font-size:22px; font-weight:bold; color:{score_color};">{result['rating']}</div>
+                            <div style="font-size:13px; color:#999; margin-top:8px; line-height:1.6;">{result['rating_desc']}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    # 五维度分项
+                    st.write("")
+                    st.caption("── 五维度分项评分 ──")
+                    score_items = result.get('scores', {})
+                    dim_order = ['growth', 'profitability', 'safety', 'cashflow', 'industry']
+                    dim_icons = {
+                        'growth': '📈', 'profitability': '💰',
+                        'safety': '🛡️', 'cashflow': '💵', 'industry': '🏭'
+                    }
+
+                    for dim in dim_order:
+                        item = score_items.get(dim)
+                        if item is None:
+                            continue
+                        s = item['score']
+                        m = item['max']
+                        dim_pct = s / m if m > 0 else 0
+
+                        col_icon, col_bar, col_num = st.columns([0.5, 3, 1])
+                        with col_icon:
+                            st.markdown(f"### {dim_icons.get(dim, '●')}")
+                        with col_bar:
+                            st.progress(dim_pct)
+                            st.caption(item.get('reason', ''))
+                        with col_num:
+                            st.markdown(f"**{s} / {m}**")
+
+                elif not result['success']:
+                    st.error("❌ 财报数据获取失败，请检查股票代码或稍后重试。")
         else:
             st.error("无法加载数据")
     else:
