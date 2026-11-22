@@ -1,15 +1,15 @@
 # Quant Research Lab · 离线研究 MVP
 
-这是 \`stock_ai\` 的独立 Streamlit 研究入口，不覆盖原来的市场脉搏、个股分析页面。没有实盘交易、QMT、券商订单或自动网络行情连接。
+这是 `stock_ai` 的独立 Streamlit 研究入口，不覆盖原来的市场脉搏、个股分析页面。没有实盘交易、QMT、券商订单或自动网络行情连接。
 
 ## 运行
 
-\`\`\`bash
+```bash
 python -m pip install -r requirements.txt
 python -m streamlit run research_app.py
-\`\`\`
+```
 
-CSV 使用 UTF-8；必需字段：\`date,open,high,low,close,volume\`，也接受同义中文列名。日期须唯一，行情非空，OHLC 关系正确。不要将本地测试生成的虚拟数据用于投资判断。
+CSV 使用 UTF-8；必需字段：`date,open,high,low,close,volume`，也接受同义中文列名。日期须唯一，行情非空，OHLC 关系正确。不要将本地测试生成的虚拟数据用于投资判断。
 
 ## 策略与执行假设
 
@@ -22,9 +22,9 @@ CSV 使用 UTF-8；必需字段：\`date,open,high,low,close,volume\`，也接�
 
 ## 验证
 
-\`\`\`bash
+```bash
 python -m pytest tests/test_quant_research.py tests/test_hot_timeline.py -q
-\`\`\`
+```
 
 测试均使用合成数据，只验证规则一致性，不证明历史超额收益。实验可复现实盘能力需要更严格的时间、成本和可成交性模拟。
 
