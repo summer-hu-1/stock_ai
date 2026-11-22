@@ -160,6 +160,10 @@ def render_market_pulse():
         sentiment = get_market_sentiment(use_cache=True)
         hot_sectors = get_hot_sectors(use_cache=True) or []
 
+    if not isinstance(sentiment, dict) or sentiment.get("is_mock") or sentiment.get("data_source") == "mock":
+        st.error("市场情绪真实数据不可用；为避免误导，已停止展示模拟行情。")
+        return
+
     trader_status = translate_market_status(sentiment)
     main_line = extract_main_line(hot_sectors)
 
@@ -237,6 +241,8 @@ def render_market_pulse():
             """,
             unsafe_allow_html=True,
         )
+    else:
+        st.info("暂无可核实的分时异动数据；不使用模拟时间和随机个股生成市场事件。")
 
     # --- 4.5 风险提醒 ---
     danger_signals = detect_danger_signals(
