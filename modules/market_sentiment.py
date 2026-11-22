@@ -512,10 +512,9 @@ def get_hot_sectors(use_cache=True):
                 return _hot_sectors_cache
             if cached:
                 return cached
-            # 使用模拟数据
-            result = _get_mock_hot_sectors()
-            print("📦 使用模拟热门板块数据")
-            return result
+            # 数据缺失不能冒充真实的热门板块。
+            print("⚠️ 无可核实的热门板块数据，返回空列表")
+            return []
 
         hot_sectors = df.nlargest(15, "涨跌幅")[["板块名称", "涨跌幅", "换手率", "上涨家数", "下跌家数", "总市值"]]
 
@@ -553,10 +552,9 @@ def get_hot_sectors(use_cache=True):
         if cached:
             print("📦 获取失败，返回数据库缓存数据")
             return cached
-        # 使用模拟数据
-        result = _get_mock_hot_sectors()
-        print("📦 使用模拟热门板块数据")
-        return result
+        # 数据缺失不能冒充真实的热门板块。
+        print("⚠️ 无可核实的热门板块数据，返回空列表")
+        return []
 
 def analyze_sentiment():
     """
