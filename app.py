@@ -196,6 +196,16 @@ NAV_ITEMS = [
         "signal": "MEMORY / LOG / REVIEW",
     },
     {
+        "key": "quant_lab",
+        "label": "量化研究",
+        "icon": "▤",
+        "hint": "离线策略回测",
+        "index": "06",
+        "title": "Quant Research Lab",
+        "subtitle": "上传真实历史日线，运行无未来函数的 MA 研究，查看成本与风险指标。",
+        "signal": "QUANT / TEST / REVIEW",
+    },
+    {
         "key": "data_center",
         "label": "数据中心",
         "icon": "▣",
@@ -1542,6 +1552,11 @@ elif current_page == "data_center":
             st.error("无法加载数据")
     else:
         st.info("请从上方选择股票查看日线数据")
+
+elif current_page == "quant_lab":
+    from quant_research.ui import render_quant_lab
+
+    render_quant_lab()
 
 # 管理员后台
 if st.session_state.get("show_admin"):
